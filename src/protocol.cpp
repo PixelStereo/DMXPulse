@@ -1,4 +1,5 @@
 #include "protocol.h"
+#include <cstring>
 namespace {
 int u8(const QByteArray &d, int i) { return quint8(d[i]); }
 int be(const QByteArray &d, int i) { return (u8(d, i) << 8) | u8(d, i + 1); }
@@ -11,6 +12,9 @@ bool pdu(const QByteArray &d, int i) {
 }
 } // namespace
 QByteArray Protocol::encode(const Frame &f) {
+  if (f.universe < (f.sacn ? 1 : 0) || f.universe > (f.sacn ? 63999 : 32767) ||
+      (f.sacn && (f.priority < 0 || f.priority > 200)))
+    return {};
   QByteArray values = f.values.left(512);
   values.resize(512, 0);
   if (!f.sacn) {
@@ -53,7 +57,7 @@ bool Protocol::decode(const QByteArray &d, bool sacn, Frame &f) {
   f = Frame{};
   f.sacn = sacn;
   if (!sacn) {
-    if (d.size() < 18 || d.left(8) != QByteArray("Art-Net\0", 8) ||
+    if (d.size() < 18 || std::memcmp(d.constData(), "Art-Net\0", 8) != 0 ||
         u8(d, 8) != 0 || u8(d, 9) != 0x50 || be(d, 10) < 14)
       return false;
     int n = be(d, 16);
@@ -64,11 +68,11 @@ bool Protocol::decode(const QByteArray &d, bool sacn, Frame &f) {
     f.values = d.mid(18, n);
   } else {
     if (d.size() < 126 || be(d, 0) != 16 || be(d, 2) != 0 ||
-        d.mid(4, 12) != QByteArray("ASC-E1.17\0\0\0", 12) || !pdu(d, 16) ||
-        d.mid(18, 4) != QByteArray::fromHex("00000004") || !pdu(d, 38) ||
-        d.mid(40, 4) != QByteArray::fromHex("00000002") || !pdu(d, 115) ||
-        u8(d, 117) != 2 || u8(d, 118) != 0xa1 || be(d, 119) != 0 ||
-        be(d, 121) != 1 || u8(d, 125) != 0)
+        std::memcmp(d.constData() + 4, "ASC-E1.17\0\0\0", 12) != 0 ||
+        !pdu(d, 16) || be(d, 18) != 0 || be(d, 20) != 4 || !pdu(d, 38) ||
+        be(d, 40) != 0 || be(d, 42) != 2 || !pdu(d, 115) || u8(d, 117) != 2 ||
+        u8(d, 118) != 0xa1 || be(d, 119) != 0 || be(d, 121) != 1 ||
+        u8(d, 125) != 0)
       return false;
     int n = be(d, 123);
     if (n < 1 || n > 513 || d.size() != 125 + n || be(d, 113) < 1 ||

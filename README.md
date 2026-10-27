@@ -30,7 +30,7 @@ Two applications listening on one UDP port do not necessarily receive a copy of 
 
 ## Editing and transmitting
 
-1. Select a channel and adjust **Output value**, from 0 to 255. Editing switches the grid to **Output** so both the number and grayscale update immediately. Use the **Input / Output** selector above the grid to return to live received data. The output buffer is sent only while transmission is enabled.
+1. Select a channel and adjust **Output value**, from 0 to 255. The slider changes only the output buffer. The grid always shows received DMX; editing, copying or clearing output never changes its values directly. To see an edit in the grid, enable transmission and receive the resulting packets on the selected source and universe.
 2. **Copy input to output** copies the entire received universe into the output buffer. The buffer initially contains zeros and is not automatically merged with incoming values.
 3. For Art-Net, enter a unicast or broadcast IPv4 destination. For sACN, output uses `239.255.HI.LO` for the selected universe.
 4. Choose **Enable transmission** to send all 512 output values at approximately 30 Hz.
@@ -43,14 +43,14 @@ DMXPulse saves settings automatically on close using Qt QSettings, under the `Pi
 
 - Interface identity (stable adapter name), protocol, universe and destination address.
 - Priority, all 512 output values and selected channel.
-- Window geometry, source-panel width, Input/Output grid mode, panel visibility and diagnostics menu state.
+- Window geometry, source-panel width, panel visibility and diagnostics menu state.
 - Listening / transmitting state and startup preferences.
 
 **Startup → Resume listening** is enabled by default and resumes input if it was active when the application closed. **Startup → Resume transmission** is disabled by default; enable it to also restore active transmission on reopening. Output values are restored either way. If a saved adapter is unavailable, network activity does not restart automatically; select an available adapter first.
 
 ## Build
 
-Requirements: CMake 3.21+, Qt 6.4+ with Widgets, Network and Test, and a C++17 compiler. Use a Qt build matching the target platform and compiler.
+Requirements: CMake 3.21+, Qt 6.4+ with Widgets and Network (plus Test when tests are enabled), and a C++17 compiler. Use a Qt build matching the target platform and compiler.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/platform
@@ -62,6 +62,8 @@ ctest --test-dir build -C Release --output-on-failure
 - **Windows:** use an MSVC developer terminal and matching Qt MSVC build. With a multi-configuration generator, run `build/Release/DMXPulse.exe`. Bundle dependencies with `windeployqt build/Release/DMXPulse.exe`.
 - **Linux:** run `build/DMXPulse` with matching Qt runtime packages installed, or prepare a package for the target distribution.
 
+Use `-DBUILD_TESTING=OFF` to build the application without QtTest.
+
 The local application supplied alongside the source uses the Qt installation on the build machine; it is not a standalone distribution package.
 
 ## Validation and scope
@@ -72,9 +74,13 @@ Compilation and tests have been run on macOS Apple Silicon with Qt 6.12. Windows
 
 Not implemented: ArtPoll device discovery, RDM, HTP/LTP merging, sACN synchronization, universe discovery and IPv6. Synchronized sACN, preview packets and nonzero DMX start codes are ignored. Duplicate / old sequences are filtered.
 
+See [VALIDATION.md](VALIDATION.md) for the review, regression coverage and sanitizer commands.
+
 ## Protocol references
 
 Art-Net™ Designed by and Copyright Artistic Licence.
 
 - [Art-Net developer documentation](https://artisticlicence.com/pages/data-and-dmx-support-documents)
 - [ANSI E1.31-2018](https://tsp.esta.org/tsp/documents/docs/E1-31-2018.pdf)
+
+The receiver also accepts this application’s own sACN data when it is delivered back through the network. A sACN sender has its own source identity: select that source to inspect its returned packets. No UI values are injected into the receive grid.

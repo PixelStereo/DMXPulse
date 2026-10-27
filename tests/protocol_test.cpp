@@ -41,6 +41,50 @@ private slots:
     d[109] = 1;
     QVERIFY(!Protocol::decode(d, true, out));
   }
+  void invalidOutputRanges() {
+    Frame f;
+    f.universe = -1;
+    QVERIFY(Protocol::encode(f).isEmpty());
+    f.universe = 32768;
+    QVERIFY(Protocol::encode(f).isEmpty());
+    f.sacn = true;
+    f.universe = 0;
+    QVERIFY(Protocol::encode(f).isEmpty());
+    f.universe = 64000;
+    QVERIFY(Protocol::encode(f).isEmpty());
+    f.universe = 1;
+    f.priority = 201;
+    QVERIFY(Protocol::encode(f).isEmpty());
+  }
+  void malformedCorpus() {
+    // Deterministic byte mutations and arbitrary buffers exercise decoder
+    // bounds.
+    quint32 state = 12345;
+    auto next = [&state] {
+      state = 1664525 * state + 1013904223;
+      return state;
+    };
+    Frame out;
+    for (int i = 0; i < 20000; ++i) {
+      QByteArray d(int(next() % 1024), 0);
+      for (auto &byte : d)
+        byte = char(next() >> 24);
+      Protocol::decode(d, false, out);
+      Protocol::decode(d, true, out);
+    }
+    for (bool sacn : {false, true}) {
+      Frame f;
+      f.sacn = sacn;
+      f.universe = 1;
+      const auto valid = Protocol::encode(f);
+      for (int i = 0; i < valid.size(); ++i) {
+        auto changed = valid;
+        changed[i] = char(quint8(changed[i]) ^ 0xff);
+        if (Protocol::decode(changed, sacn, out))
+          QCOMPARE(out.values.size(), 512);
+      }
+    }
+  }
 };
 QTEST_GUILESS_MAIN(ProtocolTest)
 #include "protocol_test.moc"

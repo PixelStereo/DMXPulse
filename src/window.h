@@ -2,6 +2,8 @@
 #include "protocol.h"
 #include <QtNetwork>
 #include <QtWidgets>
+#include <array>
+#include <memory>
 class Window : public QMainWindow {
   Q_OBJECT
 public:
@@ -22,8 +24,14 @@ private:
   QElapsedTimer clock;
   QMap<QString, Stream> streams;
   QString selected;
+  std::array<int, 512> paintedInput{}, paintedOutput{};
+  QLabel *sourceHint;
+  QPushButton *copyInput;
+  quint64 sent = 0, reordered = 0;
+  bool artDrainScheduled = false, sacnDrainScheduled = false;
+  bool workspaceSaved = false;
   QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
-  QComboBox *iface, *protocol, *gridMode;
+  QComboBox *iface, *protocol;
   QSpinBox *universe, *channel, *value, *priority;
   QLineEdit *destination;
   QPushButton *listen, *send;

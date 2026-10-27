@@ -18,6 +18,7 @@ private slots:
           combo->setCurrentIndex(i);
     auto grid = w.findChild<QTableWidget *>();
     QVERIFY(grid);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n—"));
     QPushButton *listen = nullptr, *send = nullptr;
     for (auto b : w.findChildren<QPushButton *>()) {
       if (b->text().contains("Start listening"))
@@ -65,11 +66,10 @@ private slots:
     QVERIFY(value);
     w.findChild<QSlider *>()->setValue(127);
     QCOMPARE(value->value(), 127);
-    QCOMPARE(w.findChild<QComboBox *>("gridMode")->currentIndex(), 1);
-    QCOMPARE(grid->item(0, 0)->text(), QString("1\n127"));
-    QCOMPARE(grid->item(0, 0)->background().color(), QColor(127, 127, 127));
-    w.findChild<QComboBox *>("gridMode")->setCurrentIndex(0);
+    // Editing alone must never impersonate a received DMX packet.
+    QTest::qWait(150);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n231"));
+    QCOMPARE(grid->item(0, 0)->background().color(), QColor(231, 231, 231));
     QTRY_VERIFY(grid->item(0, 0)->toolTip().contains("Output: 127"));
     if (!qEnvironmentVariable("DMXSCOPE_SCREENSHOT").isEmpty())
       w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
@@ -80,6 +80,11 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("127"), 2000);
     send->click();
     QVERIFY(!send->isChecked());
+    w.findChild<QSlider *>()->setValue(64);
+    QTest::qWait(150);
+    QCOMPARE(value->value(), 64);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n127"));
+    QCOMPARE(grid->item(0, 0)->background().color(), QColor(127, 127, 127));
     QComboBox *protocol = nullptr;
     for (auto combo : w.findChildren<QComboBox *>())
       if (combo->findText("sACN") >= 0)
@@ -93,6 +98,21 @@ private slots:
     f.values[0] = char(99);
     socket.writeDatagram(Protocol::encode(f), local, 15568);
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("\n99"), 2000);
+    // sACN accepts large forward sequence jumps and rollover, but ignores
+    // recent duplicates.
+    f.sequence = 200;
+    f.values[0] = 100;
+    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n100"));
+    f.sequence = 1;
+    f.values[0] = 101;
+    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n101"));
+    f.sequence = 0;
+    f.values[0] = 102;
+    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    QTest::qWait(100);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n101"));
     listen->click();
     QVERIFY(!listen->isChecked());
   }
@@ -137,7 +157,6 @@ private slots:
                QString("192.168.1.255"));
       QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 47);
       QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 201);
-      QCOMPARE(w.findChild<QComboBox *>("gridMode")->currentIndex(), 1);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
       QVERIFY(!w.findChild<QToolButton *>("outputToggle")->isChecked());
@@ -184,6 +203,57 @@ private slots:
     Window w(18454, 18568, file);
     QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
     QVERIFY(!w.findChild<QPushButton *>("listen")->isChecked());
+  }
+  void cachedFramesAndSteadyRefresh() {
+    QTemporaryDir dir;
+    Window w(19454, 19568, dir.filePath("settings.ini"));
+    w.show();
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+    QUdpSocket socket;
+    Frame f;
+    f.universe = 0;
+    f.sequence = 0;
+    f.values = QByteArray(512, 0);
+    f.values[0] = 55;
+    auto grid = w.findChild<QTableWidget *>();
+    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n55"));
+    f.sequence = 200;
+    f.values[0] = 66;
+    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n66"));
+    f.sequence = 199;
+    f.values[0] = 77;
+    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    QTest::qWait(100);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n66"));
+    f.sequence = 201;
+    f.universe = 1;
+    f.values[0] = 88;
+    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    QTRY_COMPARE(w.findChild<QListWidget *>()->count(), 2);
+    w.findChild<QSpinBox *>("universe")->setValue(1);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n88"));
+    QSignalSpy updates(grid->model(), &QAbstractItemModel::dataChanged);
+    QTest::qWait(150);
+    QCOMPARE(updates.count(), 0);
+    // A bounded incoming burst must reach the final value while UI remains
+    // alive.
+    for (int i = 0; i < 400; ++i) {
+      f.sequence = 0;
+      f.values[0] = char(i % 256);
+      socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+      if (i % 40 == 0)
+        QCoreApplication::processEvents();
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(grid->item(0, 0)->text(), QString("1\n143"),
+                              3000);
+    w.findChild<QPushButton *>("listen")->setChecked(false);
   }
 };
 QTEST_MAIN(WindowTest)

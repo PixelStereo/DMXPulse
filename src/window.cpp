@@ -8,7 +8,11 @@ public:
              const QModelIndex &index) const override {
     p->save();
     p->fillRect(option.rect, index.data(Qt::BackgroundRole).value<QBrush>());
-    p->setPen(index.data(Qt::ForegroundRole).value<QBrush>().color());
+    const auto textColor =
+        index.data(Qt::ForegroundRole).value<QBrush>().color();
+    QColor channelColor = textColor;
+    channelColor.setAlpha(190);
+    p->setPen(channelColor);
     const auto lines = index.data().toString().split('\n');
     QRect top = option.rect.adjusted(1, 1, -1, -1);
     top.setHeight(top.height() / 2);
@@ -18,10 +22,11 @@ public:
     p->setFont(font);
     p->drawText(top, Qt::AlignCenter, lines.value(0));
     font.setBold(true);
+    p->setPen(textColor);
     p->setFont(font);
     p->drawText(bottom, Qt::AlignCenter, lines.value(1));
     if (option.state & QStyle::State_Selected) {
-      p->setPen(QPen(QColor("#31c9a0"), 2));
+      p->setPen(QPen(QColor("#a8c4b8"), 2));
       p->drawRect(option.rect.adjusted(1, 1, -2, -2));
     }
     p->restore();
@@ -37,6 +42,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
                                         QSettings::UserScope, "PixelStereo",
                                         "DMXPulse")
           : std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
+  paintedInput.fill(-2);
+  paintedOutput.fill(-2);
   clock.start();
   setWindowTitle("DMXPulse");
   resize(1440, 900);
@@ -121,6 +128,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   listen->setObjectName("listen");
   listen->setCheckable(true);
   listen->setMinimumWidth(140);
+  listen->setShortcut(QKeySequence("Ctrl+L"));
+  listen->setToolTip("Start or stop receiving DMX (Ctrl+L)");
   toolbar->addWidget(field("Network interface", iface), 1);
   toolbar->addWidget(field("Adapters", rescan));
   toolbar->addWidget(field("Protocol", protocol));
@@ -149,6 +158,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   emptyHelp->setObjectName("muted");
   emptyHelp->setWordWrap(true);
   sideLayout->addWidget(emptyHelp);
+  sourceHint = emptyHelp;
   auto separator = new QFrame;
   separator->setFrameShape(QFrame::HLine);
   sideLayout->addWidget(separator);
@@ -169,9 +179,12 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   value->setRange(0, 255);
   sideLayout->addWidget(field("Output value", value));
   slider = new QSlider(Qt::Horizontal);
+  slider->setObjectName("outputSlider");
+  slider->setAccessibleName("Output channel level");
   slider->setRange(0, 255);
   sideLayout->addWidget(slider);
   auto copy = new QPushButton("Copy input to output");
+  copyInput = copy;
   copy->setToolTip("Copy all 512 received values into the output buffer");
   sideLayout->addWidget(copy);
   auto zero = new QPushButton("Clear output");
@@ -192,14 +205,24 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   universeTitle->setObjectName("section");
   canvasHeader->addWidget(universeTitle);
   canvasHeader->addStretch();
-  gridMode = new QComboBox;
-  gridMode->setObjectName("gridMode");
-  gridMode->addItems({"Input", "Output"});
-  gridMode->setToolTip("Input: received DMX · Output: editable buffer, sent "
-                       "only while transmission is enabled");
-  canvasHeader->addWidget(gridMode);
-  auto legend = new QLabel("Channel / value    ·    0  ░▒▓  255");
-  legend->setObjectName("muted");
+  auto legend = new QWidget;
+  auto legendLayout = new QHBoxLayout(legend);
+  legendLayout->setContentsMargins(0, 0, 0, 0);
+  legendLayout->setSpacing(8);
+  auto legendText = new QLabel("RECEIVED VALUES");
+  legendText->setObjectName("muted");
+  legendLayout->addWidget(legendText);
+  auto black = new QLabel("0");
+  black->setObjectName("muted");
+  legendLayout->addWidget(black);
+  auto ramp = new QFrame;
+  ramp->setFixedSize(68, 7);
+  ramp->setStyleSheet("border-radius:2px;background:qlineargradient(x1:0,y1:0,"
+                      "x2:1,y2:0,stop:0 black,stop:1 white)");
+  legendLayout->addWidget(ramp);
+  auto white = new QLabel("255");
+  white->setObjectName("muted");
+  legendLayout->addWidget(white);
   canvasHeader->addWidget(legend);
   canvasLayout->addLayout(canvasHeader);
   grid = new QTableWidget(16, columns);
@@ -298,6 +321,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QLabel#muted { color:#96999d; }
     QLabel#reading { font-size:22px; font-weight:600; }
     QLabel#signal { background:#242628; border-radius:10px; padding:6px 12px; color:#b7babe; }
+    QLabel#signal[inputState="live"] { background:#283e34; color:#c2e5d3; }
+    QLabel#signal[inputState="stale"] { background:#443c2c; color:#e0c998; }
     QComboBox,QSpinBox,QLineEdit { background:#222426; border:1px solid #393c3f; border-radius:5px; padding:7px; min-height:17px; selection-background-color:#3c665e; }
     QComboBox:focus,QSpinBox:focus,QLineEdit:focus { border-color:#9cb8af; }
     QPushButton { background:#292c2e; border:1px solid #404346; border-radius:5px; padding:8px 12px; }
@@ -349,9 +374,11 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     render();
   });
   connect(sources, &QListWidget::itemClicked, this, [this](QListWidgetItem *i) {
-    endSend();
     QString key = i->data(Qt::UserRole).toString();
     auto f = streams.value(key).frame;
+    if (protocol->currentIndex() != int(f.sacn) ||
+        universe->value() != f.universe)
+      endSend();
     protocol->setCurrentIndex(f.sacn ? 1 : 0);
     universe->setValue(f.universe);
     selected = key;
@@ -380,12 +407,10 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(copy, &QPushButton::clicked, this, [this] {
     if (streams.contains(selected))
       output = streams[selected].frame.values;
-    gridMode->setCurrentIndex(1);
     render();
   });
   connect(zero, &QPushButton::clicked, this, [this] {
     output.fill(0);
-    gridMode->setCurrentIndex(1);
     render();
   });
   connect(send, &QPushButton::toggled, this, [this](bool on) {
@@ -413,26 +438,33 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     }
     network =
         QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
-    tx.setMulticastInterface(network);
+    if (!network.isValid() ||
+        !network.flags().testFlag(QNetworkInterface::IsUp)) {
+      send->setChecked(false);
+      status->setText("Selected network interface is unavailable. Refresh the "
+                      "adapter list.");
+      return;
+    }
     protocol->setEnabled(false);
     universe->setEnabled(false);
     iface->setEnabled(false);
     destination->setEnabled(false);
     priority->setEnabled(false);
+    sent = 0;
+    sendTimer.setTimerType(Qt::PreciseTimer);
     sendTimer.start(33);
     updateControls();
   });
   connect(&sendTimer, &QTimer::timeout, this, [this] { transmit(); });
   connect(&refresh, &QTimer::timeout, this, &Window::render);
-  refresh.start(100);
-  connect(gridMode, &QComboBox::currentIndexChanged, this,
-          [this] { render(); });
+  refresh.start(33);
   restoreSettings();
   updateControls();
   render();
 }
 Window::~Window() {
-  saveSettings();
+  if (!workspaceSaved)
+    saveSettings();
   endSend();
   stop();
 }
@@ -444,6 +476,13 @@ void Window::start() {
     return;
   }
   network = QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
+  if (!network.isValid() ||
+      !network.flags().testFlag(QNetworkInterface::IsUp)) {
+    listen->setChecked(false);
+    status->setText(
+        "Selected network interface is unavailable. Click Refresh.");
+    return;
+  }
   auto flags = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
   // A specific loopback listener avoids losing local unicast to a more
   // specific listener owned by another lighting application.
@@ -461,7 +500,11 @@ void Window::start() {
     status->setText("Could not start listening: " + error);
     return;
   }
-  datagrams = received = invalid = otherInterface = 0;
+  art.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
+                      1024 * 1024);
+  sacn.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
+                       1024 * 1024);
+  datagrams = received = invalid = otherInterface = reordered = 0;
   streams.clear();
   selected.clear();
   iface->setEnabled(false);
@@ -503,6 +546,8 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
   int budget = 256;
   while (socket->hasPendingDatagrams() && budget--) {
     auto d = socket->receiveDatagram();
+    if (!d.isValid())
+      break;
     ++datagrams;
     if (d.interfaceIndex() != 0 &&
         d.interfaceIndex() != uint(network.index())) {
@@ -523,12 +568,10 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
       invalid++;
       continue;
     }
-    if (isSacn && f.cid == cid)
-      continue;
     QString key = QString("%1/%2/%3/%4")
                       .arg(isSacn ? "sACN" : "Art-Net")
                       .arg(f.universe)
-                      .arg(d.senderAddress().toString(),
+                      .arg(isSacn ? QString() : d.senderAddress().toString(),
                            QString::fromLatin1(f.cid.toHex()));
     if (f.terminated) {
       streams.remove(key);
@@ -537,11 +580,20 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
     if (!streams.contains(key) && streams.size() >= 2048)
       continue;
     auto &s = streams[key];
-    if (s.packets && clock.elapsed() - s.seen < 2500 &&
-        (isSacn || f.sequence != 0)) {
-      int delta = quint8(f.sequence - s.frame.sequence);
-      if (delta == 0 || delta > 127)
-        continue;
+    if (s.packets && clock.elapsed() - s.seen < 2500) {
+      if (isSacn) {
+        int diff = int(f.sequence) - int(s.frame.sequence);
+        if (diff <= 0 && diff > -20) {
+          ++reordered;
+          continue;
+        }
+      } else if (f.sequence && s.frame.sequence) {
+        int diff = (int(f.sequence) - int(s.frame.sequence) + 255) % 255;
+        if (diff == 0 || diff > 127) {
+          ++reordered;
+          continue;
+        }
+      }
     }
     s.frame = f;
     s.ip = d.senderAddress().toString();
@@ -552,12 +604,20 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
         f.universe == universe->value())
       selected = key;
   }
+  // Drain in bounded batches, yielding to UI and timers between batches.
+  bool &scheduled = isSacn ? sacnDrainScheduled : artDrainScheduled;
+  if (socket->hasPendingDatagrams() && !scheduled) {
+    scheduled = true;
+    QTimer::singleShot(0, this, [this, socket, isSacn] {
+      (isSacn ? sacnDrainScheduled : artDrainScheduled) = false;
+      receive(socket, isSacn);
+    });
+  }
 }
 void Window::selectStream() { render(); }
 void Window::edit(int v) {
   output[channel->value() - 1] = char(v);
   slider->setValue(v);
-  gridMode->setCurrentIndex(1);
   render();
 }
 void Window::render() {
@@ -567,49 +627,77 @@ void Window::render() {
       i = streams.erase(i);
     else
       ++i;
-  for (int row = sources->count() - 1; row >= 0; --row)
-    if (!streams.contains(sources->item(row)->data(Qt::UserRole).toString()))
+  QHash<QString, QListWidgetItem *> sourceItems;
+  sourceItems.reserve(sources->count());
+  for (int row = sources->count() - 1; row >= 0; --row) {
+    auto item = sources->item(row);
+    auto key = item->data(Qt::UserRole).toString();
+    if (!streams.contains(key))
       delete sources->takeItem(row);
-  for (auto i = streams.cbegin(); i != streams.cend(); ++i) {
-    const auto &s = i.value();
-    QListWidgetItem *item = nullptr;
-    for (int row = 0; row < sources->count(); ++row)
-      if (sources->item(row)->data(Qt::UserRole).toString() == i.key()) {
-        item = sources->item(row);
+    else
+      sourceItems.insert(key, item);
+  }
+  if (!streams.contains(selected)) {
+    selected.clear();
+    for (auto i = streams.cbegin(); i != streams.cend(); ++i)
+      if (i->frame.sacn == bool(protocol->currentIndex()) &&
+          i->frame.universe == universe->value()) {
+        selected = i.key();
         break;
       }
+  }
+  for (auto i = streams.cbegin(); i != streams.cend(); ++i) {
+    const auto &s = i.value();
+    auto item = sourceItems.value(i.key());
     if (!item) {
       item = new QListWidgetItem(sources);
       item->setData(Qt::UserRole, i.key());
     }
-    item->setText(
-        QString("%1 · Universe %2  %3\n%4%5\n%6 packets · priority %7")
+    const auto text =
+        QString("%1 · Universe %2  %3\n%4%5\nPackets: %6%7")
             .arg(s.frame.sacn ? "sACN" : "Art-Net")
             .arg(s.frame.universe)
             .arg(now - s.seen < 2500 ? "●" : "○")
             .arg(s.ip,
                  s.frame.name.isEmpty() ? QString() : " · " + s.frame.name)
             .arg(s.packets)
-            .arg(s.frame.priority));
-    item->setSelected(i.key() == selected);
+            .arg(s.frame.sacn ? QString(" · priority %1").arg(s.frame.priority)
+                              : QString());
+    if (item->text() != text)
+      item->setText(text);
+    if (item->isSelected() != (i.key() == selected))
+      item->setSelected(i.key() == selected);
   }
-  bool live = streams.contains(selected) && now - streams[selected].seen < 2500;
+  sourceHint->setVisible(streams.isEmpty());
+  copyInput->setEnabled(streams.contains(selected));
+  bool live = listen->isChecked() && streams.contains(selected) &&
+              now - streams[selected].seen < 2500;
   QByteArray rx = streams.contains(selected) ? streams[selected].frame.values
                                              : QByteArray(512, 0);
   int active = 0;
-  for (int i = 0; i < 512; i++) {
+  const bool hasInput = streams.contains(selected);
+  for (int i = 0; i < 512; ++i) {
+    int receivedValue = hasInput ? quint8(rx[i]) : -1;
     int out = quint8(output[i]);
-    int v = gridMode->currentIndex() ? out : quint8(rx[i]);
-    if (v)
-      active++;
+    if (receivedValue > 0)
+      ++active;
     auto item = grid->item(i / columns, i % columns);
-    item->setText(QString("%1\n%2").arg(i + 1).arg(v));
-    item->setBackground(QColor(v, v, v));
-    item->setForeground(v < 128 ? QColor(Qt::white) : QColor(Qt::black));
-    item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
-                         .arg(i + 1)
-                         .arg(quint8(rx[i]))
-                         .arg(out));
+    if (paintedInput[i] != receivedValue) {
+      item->setText(QString("%1\n%2").arg(i + 1).arg(
+          receivedValue < 0 ? QString("—") : QString::number(receivedValue)));
+      int gray = qMax(0, receivedValue);
+      item->setBackground(QColor(gray, gray, gray));
+      item->setForeground(gray < 128 ? QColor(Qt::white) : QColor(Qt::black));
+    }
+    if (paintedInput[i] != receivedValue || paintedOutput[i] != out)
+      item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
+                           .arg(i + 1)
+                           .arg(receivedValue < 0
+                                    ? QString("No data")
+                                    : QString::number(receivedValue))
+                           .arg(out));
+    paintedInput[i] = receivedValue;
+    paintedOutput[i] = out;
   }
   QString hint;
   if (listen->isChecked()) {
@@ -631,17 +719,21 @@ void Window::render() {
           .arg(received)
           .arg(otherInterface)
           .arg(invalid)
-          .arg(hint));
+          .arg(hint) +
+      QString("\nSequence drops: %1 · Sent: %2").arg(reordered).arg(sent));
+  const QString badgeState = live                         ? "live"
+                             : streams.contains(selected) ? "stale"
+                                                          : "idle";
+  if (signal->property("inputState").toString() != badgeState) {
+    signal->setProperty("inputState", badgeState);
+    signal->style()->unpolish(signal);
+    signal->style()->polish(signal);
+  }
   signal->setText(live                         ? "● Live input"
                   : streams.contains(selected) ? "○ Stale input"
                                                : "○ No signal");
   universeTitle->setText(
-      QString("%1 · Universe %2")
-          .arg(gridMode->currentIndex()
-                   ? (sendTimer.isActive() ? "Output · transmitting"
-                                           : "Output buffer")
-                   : "Input")
-          .arg(universe->value()));
+      QString("Received · Universe %1").arg(universe->value()));
   inputValue->setText(streams.contains(selected)
                           ? QString::number(quint8(rx[channel->value() - 1]))
                           : QString("—"));
@@ -651,15 +743,13 @@ void Window::render() {
   value->setValue(quint8(output[channel->value() - 1]));
   slider->setValue(value->value());
   updating = false;
-  metrics->setText(
-      QString(
-          "%1  ·  %2 active channels  ·  %3 received packets  ·  %4 packets "
-          "ignored  ·  Output %5")
-          .arg(live ? "Live" : "No signal / stale")
-          .arg(active)
-          .arg(received)
-          .arg(invalid)
-          .arg(sendTimer.isActive() ? "transmitting" : "off"));
+  metrics->setText(QString("%1  ·  Active channels: %2  ·  Received: %3  ·  "
+                           "Unsupported: %4  ·  Output: %5")
+                       .arg(live ? "Live" : "No signal / stale")
+                       .arg(active)
+                       .arg(received)
+                       .arg(invalid)
+                       .arg(sendTimer.isActive() ? "transmitting" : "off"));
 }
 void Window::transmit(bool terminated) {
   Frame f;
@@ -669,7 +759,8 @@ void Window::transmit(bool terminated) {
   f.cid = cid;
   f.name = "DMXPulse";
   f.priority = priority->value();
-  sequence = sequence == 255 ? 1 : sequence + 1;
+  sequence =
+      f.sacn ? quint8(sequence + 1) : (sequence == 255 ? 1 : sequence + 1);
   f.sequence = sequence;
   f.terminated = terminated;
   QHostAddress target = f.sacn ? QHostAddress(QString("239.255.%1.%2")
@@ -685,11 +776,13 @@ void Window::transmit(bool terminated) {
       }
     if (local.isNull() || !tx.bind(local, 0)) {
       status->setText("Could not bind output to the selected interface");
-      endSend();
+      if (!terminated)
+        endSend();
       return;
     }
     tx.setMulticastInterface(network);
     tx.setSocketOption(QAbstractSocket::MulticastTtlOption, 1);
+    tx.setSocketOption(QAbstractSocket::MulticastLoopbackOption, 1);
   }
   if (tx.writeDatagram(Protocol::encode(f), target,
                        f.sacn ? sacnPort : artPort) < 0) {
@@ -697,6 +790,8 @@ void Window::transmit(bool terminated) {
       return;
     status->setText("Transmission error: " + tx.errorString());
     endSend();
+  } else if (!terminated) {
+    ++sent;
   }
 }
 
@@ -717,6 +812,9 @@ void Window::restoreSettings() {
   auto &s = *settings;
   restoreGeometry(s.value("window/geometry").toByteArray());
   split->restoreState(s.value("window/splitter").toByteArray());
+  auto savedCid = s.value("network/cid").toByteArray();
+  if (savedCid.size() == 16)
+    cid = savedCid;
   auto savedInterface = s.value("network/interface").toString();
   int index = iface->findData(savedInterface, Qt::UserRole + 1);
   if (index >= 0)
@@ -732,7 +830,6 @@ void Window::restoreSettings() {
   auto savedOutput = s.value("output/values").toByteArray();
   if (savedOutput.size() == 512)
     output = savedOutput;
-  gridMode->setCurrentIndex(qBound(0, s.value("view/gridMode", 0).toInt(), 1));
   channel->setValue(s.value("view/channel", 1).toInt());
   grid->setCurrentCell((channel->value() - 1) / columns,
                        (channel->value() - 1) % columns);
@@ -754,13 +851,14 @@ void Window::saveSettings() {
   auto &s = *settings;
   s.setValue("window/geometry", saveGeometry());
   s.setValue("window/splitter", split->saveState());
+  s.setValue("network/cid", cid);
   s.setValue("network/interface", iface->currentData(Qt::UserRole + 1));
   s.setValue("network/protocol", protocol->currentIndex());
   s.setValue("network/universe", universe->value());
   s.setValue("output/destination", destination->text());
   s.setValue("output/priority", priority->value());
   s.setValue("output/values", output);
-  s.setValue("view/gridMode", gridMode->currentIndex());
+  s.remove("view/gridMode");
   s.setValue("view/channel", channel->value());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());
@@ -770,8 +868,14 @@ void Window::saveSettings() {
   s.setValue("session/listening", listen->isChecked());
   s.setValue("session/transmitting", send->isChecked());
   s.sync();
+  if (s.status() != QSettings::NoError)
+    status->setText("Could not save workspace settings.");
 }
 void Window::closeEvent(QCloseEvent *event) {
   saveSettings();
+  workspaceSaved = true;
+  endSend();
+  stop();
+  refresh.stop();
   QMainWindow::closeEvent(event);
 }
