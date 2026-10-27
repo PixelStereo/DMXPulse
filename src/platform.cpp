@@ -9,7 +9,7 @@ bool setMulticastReceptionEnabled(bool enabled) {
   static QJniObject lock;
   static bool held = false;
   if (enabled && !lock.isValid()) {
-    auto context = QNativeInterface::QAndroidApplication::context();
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
     auto service = QJniObject::fromString("wifi");
     auto wifi = context.callObjectMethod(
         "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;",

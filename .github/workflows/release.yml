@@ -84,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             arch: arm64
           - runner: macos-15-intel
             arch: x86_64
@@ -255,6 +255,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           target: ios
           arch: ios
+          archives: qtbase
           cache: true
       - name: Build device application
         run: |
