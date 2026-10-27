@@ -30,7 +30,7 @@ Two applications listening on one UDP port do not necessarily receive a copy of 
 
 ## Editing and transmitting
 
-1. Select a channel and adjust **Output value**, from 0 to 255.
+1. Select a channel and adjust **Output value**, from 0 to 255. Editing switches the grid to **Output** so both the number and grayscale update immediately. Use the **Input / Output** selector above the grid to return to live received data. The output buffer is sent only while transmission is enabled.
 2. **Copy input to output** copies the entire received universe into the output buffer. The buffer initially contains zeros and is not automatically merged with incoming values.
 3. For Art-Net, enter a unicast or broadcast IPv4 destination. For sACN, output uses `239.255.HI.LO` for the selected universe.
 4. Choose **Enable transmission** to send all 512 output values at approximately 30 Hz.
@@ -43,7 +43,7 @@ DMXPulse saves settings automatically on close using Qt QSettings, under the `Pi
 
 - Interface identity (stable adapter name), protocol, universe and destination address.
 - Priority, all 512 output values and selected channel.
-- Window geometry, source-panel width, panel visibility and diagnostics menu state.
+- Window geometry, source-panel width, Input/Output grid mode, panel visibility and diagnostics menu state.
 - Listening / transmitting state and startup preferences.
 
 **Startup → Resume listening** is enabled by default and resumes input if it was active when the application closed. **Startup → Resume transmission** is disabled by default; enable it to also restore active transmission on reopening. Output values are restored either way. If a saved adapter is unavailable, network activity does not restart automatically; select an available adapter first.

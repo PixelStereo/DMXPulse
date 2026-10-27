@@ -192,6 +192,12 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   universeTitle->setObjectName("section");
   canvasHeader->addWidget(universeTitle);
   canvasHeader->addStretch();
+  gridMode = new QComboBox;
+  gridMode->setObjectName("gridMode");
+  gridMode->addItems({"Input", "Output"});
+  gridMode->setToolTip("Input: received DMX · Output: editable buffer, sent "
+                       "only while transmission is enabled");
+  canvasHeader->addWidget(gridMode);
   auto legend = new QLabel("Channel / value    ·    0  ░▒▓  255");
   legend->setObjectName("muted");
   canvasHeader->addWidget(legend);
@@ -374,10 +380,12 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(copy, &QPushButton::clicked, this, [this] {
     if (streams.contains(selected))
       output = streams[selected].frame.values;
+    gridMode->setCurrentIndex(1);
     render();
   });
   connect(zero, &QPushButton::clicked, this, [this] {
     output.fill(0);
+    gridMode->setCurrentIndex(1);
     render();
   });
   connect(send, &QPushButton::toggled, this, [this](bool on) {
@@ -417,6 +425,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(&sendTimer, &QTimer::timeout, this, [this] { transmit(); });
   connect(&refresh, &QTimer::timeout, this, &Window::render);
   refresh.start(100);
+  connect(gridMode, &QComboBox::currentIndexChanged, this,
+          [this] { render(); });
   restoreSettings();
   updateControls();
   render();
@@ -547,6 +557,7 @@ void Window::selectStream() { render(); }
 void Window::edit(int v) {
   output[channel->value() - 1] = char(v);
   slider->setValue(v);
+  gridMode->setCurrentIndex(1);
   render();
 }
 void Window::render() {
@@ -587,7 +598,8 @@ void Window::render() {
                                              : QByteArray(512, 0);
   int active = 0;
   for (int i = 0; i < 512; i++) {
-    int v = quint8(rx[i]), out = quint8(output[i]);
+    int out = quint8(output[i]);
+    int v = gridMode->currentIndex() ? out : quint8(rx[i]);
     if (v)
       active++;
     auto item = grid->item(i / columns, i % columns);
@@ -596,7 +608,7 @@ void Window::render() {
     item->setForeground(v < 128 ? QColor(Qt::white) : QColor(Qt::black));
     item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
                          .arg(i + 1)
-                         .arg(v)
+                         .arg(quint8(rx[i]))
                          .arg(out));
   }
   QString hint;
@@ -623,7 +635,13 @@ void Window::render() {
   signal->setText(live                         ? "● Live input"
                   : streams.contains(selected) ? "○ Stale input"
                                                : "○ No signal");
-  universeTitle->setText(QString("Universe %1").arg(universe->value()));
+  universeTitle->setText(
+      QString("%1 · Universe %2")
+          .arg(gridMode->currentIndex()
+                   ? (sendTimer.isActive() ? "Output · transmitting"
+                                           : "Output buffer")
+                   : "Input")
+          .arg(universe->value()));
   inputValue->setText(streams.contains(selected)
                           ? QString::number(quint8(rx[channel->value() - 1]))
                           : QString("—"));
@@ -714,6 +732,7 @@ void Window::restoreSettings() {
   auto savedOutput = s.value("output/values").toByteArray();
   if (savedOutput.size() == 512)
     output = savedOutput;
+  gridMode->setCurrentIndex(qBound(0, s.value("view/gridMode", 0).toInt(), 1));
   channel->setValue(s.value("view/channel", 1).toInt());
   grid->setCurrentCell((channel->value() - 1) / columns,
                        (channel->value() - 1) % columns);
@@ -741,6 +760,7 @@ void Window::saveSettings() {
   s.setValue("output/destination", destination->text());
   s.setValue("output/priority", priority->value());
   s.setValue("output/values", output);
+  s.setValue("view/gridMode", gridMode->currentIndex());
   s.setValue("view/channel", channel->value());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());

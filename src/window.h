@@ -23,7 +23,7 @@ private:
   QMap<QString, Stream> streams;
   QString selected;
   QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
-  QComboBox *iface, *protocol;
+  QComboBox *iface, *protocol, *gridMode;
   QSpinBox *universe, *channel, *value, *priority;
   QLineEdit *destination;
   QPushButton *listen, *send;

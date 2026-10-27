@@ -35,7 +35,8 @@ private slots:
     f.sequence = 1;
     f.values = QByteArray(512, 0);
     f.values[0] = char(231);
-    for(int i=3;i<29;++i)f.values[i]=char((i-3)*255/25);
+    for (int i = 3; i < 29; ++i)
+      f.values[i] = char((i - 3) * 255 / 25);
     auto iface = w.findChildren<QComboBox *>().first();
     auto net =
         QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
@@ -62,7 +63,13 @@ private slots:
       if (b->maximum() == 255)
         value = b;
     QVERIFY(value);
-    value->setValue(127);
+    w.findChild<QSlider *>()->setValue(127);
+    QCOMPARE(value->value(), 127);
+    QCOMPARE(w.findChild<QComboBox *>("gridMode")->currentIndex(), 1);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n127"));
+    QCOMPARE(grid->item(0, 0)->background().color(), QColor(127, 127, 127));
+    w.findChild<QComboBox *>("gridMode")->setCurrentIndex(0);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n231"));
     QTRY_VERIFY(grid->item(0, 0)->toolTip().contains("Output: 127"));
     if (!qEnvironmentVariable("DMXSCOPE_SCREENSHOT").isEmpty())
       w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
@@ -130,6 +137,7 @@ private slots:
                QString("192.168.1.255"));
       QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 47);
       QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 201);
+      QCOMPARE(w.findChild<QComboBox *>("gridMode")->currentIndex(), 1);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
       QVERIFY(!w.findChild<QToolButton *>("outputToggle")->isChecked());
