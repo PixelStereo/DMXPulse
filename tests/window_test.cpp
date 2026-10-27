@@ -9,7 +9,8 @@ private slots:
     QVERIFY(competitor.bind(QHostAddress::LocalHost, 16454,
                             QUdpSocket::ShareAddress |
                                 QUdpSocket::ReuseAddressHint));
-    Window w(16454, 15568);
+    QTemporaryDir settingsDir;
+    Window w(16454, 15568, settingsDir.filePath("settings.ini"));
     w.show();
     for (auto combo : w.findChildren<QComboBox *>())
       for (int i = 0; i < combo->count(); ++i)
@@ -19,9 +20,9 @@ private slots:
     QVERIFY(grid);
     QPushButton *listen = nullptr, *send = nullptr;
     for (auto b : w.findChildren<QPushButton *>()) {
-      if (b->text().contains("Démarrer"))
+      if (b->text().contains("Start listening"))
         listen = b;
-      if (b->text().contains("Activer"))
+      if (b->text().contains("Enable transmission"))
         send = b;
     }
     QVERIFY(listen);
@@ -34,6 +35,7 @@ private slots:
     f.sequence = 1;
     f.values = QByteArray(512, 0);
     f.values[0] = char(231);
+    for(int i=3;i<29;++i)f.values[i]=char((i-3)*255/25);
     auto iface = w.findChildren<QComboBox *>().first();
     auto net =
         QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
@@ -61,10 +63,10 @@ private slots:
         value = b;
     QVERIFY(value);
     value->setValue(127);
-    QTRY_VERIFY(grid->item(0, 0)->toolTip().contains("Sortie : 127"));
+    QTRY_VERIFY(grid->item(0, 0)->toolTip().contains("Output: 127"));
     if (!qEnvironmentVariable("DMXSCOPE_SCREENSHOT").isEmpty())
       w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
-    auto destination = w.findChild<QLineEdit *>();
+    auto destination = w.findChild<QLineEdit *>("destination");
     destination->setText("127.0.0.1");
     send->click();
     QVERIFY(send->isChecked());
@@ -86,6 +88,94 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("\n99"), 2000);
     listen->click();
     QVERIFY(!listen->isChecked());
+  }
+  void settingsRoundTrip() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto file = directory.filePath("settings.ini");
+    QString interfaceName;
+    {
+      Window w(17454, 17568, file);
+      auto iface = w.findChild<QComboBox *>("networkInterface");
+      for (int i = 0; i < iface->count(); ++i)
+        if (iface->itemText(i).contains("[local]"))
+          iface->setCurrentIndex(i);
+      interfaceName = iface->currentData(Qt::UserRole + 1).toString();
+      w.findChild<QComboBox *>("protocol")->setCurrentIndex(1);
+      w.findChild<QSpinBox *>("universe")->setValue(514);
+      w.findChild<QSpinBox *>("priority")->setValue(120);
+      w.findChild<QLineEdit *>("destination")->setText("192.168.1.255");
+      w.findChild<QSpinBox *>("channel")->setValue(47);
+      w.findChild<QSpinBox *>("outputValue")->setValue(201);
+      for (auto action : w.findChildren<QAction *>()) {
+        if (action->text() == "Network diagnostics")
+          action->setChecked(true);
+        if (action->text() == "Sources and inspector")
+          action->setChecked(false);
+      }
+      w.findChild<QToolButton *>("outputToggle")->setChecked(false);
+      w.findChild<QPushButton *>("listen")->setChecked(true);
+      QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+    }
+    {
+      Window w(17454, 17568, file);
+      QCOMPARE(w.findChild<QComboBox *>("networkInterface")
+                   ->currentData(Qt::UserRole + 1)
+                   .toString(),
+               interfaceName);
+      QCOMPARE(w.findChild<QComboBox *>("protocol")->currentIndex(), 1);
+      QCOMPARE(w.findChild<QSpinBox *>("universe")->value(), 514);
+      QCOMPARE(w.findChild<QSpinBox *>("priority")->value(), 120);
+      QCOMPARE(w.findChild<QLineEdit *>("destination")->text(),
+               QString("192.168.1.255"));
+      QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 47);
+      QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 201);
+      QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+      QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
+      QVERIFY(!w.findChild<QToolButton *>("outputToggle")->isChecked());
+      for (auto action : w.findChildren<QAction *>()) {
+        if (action->text() == "Network diagnostics")
+          QVERIFY(action->isChecked());
+        if (action->text() == "Sources and inspector")
+          QVERIFY(!action->isChecked());
+      }
+      w.findChild<QPushButton *>("listen")->setChecked(false);
+    }
+  }
+  void transmissionRestoreIsOptIn() {
+    QTemporaryDir directory;
+    const auto file = directory.filePath("settings.ini");
+    {
+      Window w(18454, 18568, file);
+      auto iface = w.findChild<QComboBox *>("networkInterface");
+      for (int i = 0; i < iface->count(); ++i)
+        if (iface->itemText(i).contains("[local]"))
+          iface->setCurrentIndex(i);
+      w.findChild<QLineEdit *>("destination")->setText("127.0.0.1");
+      w.findChild<QPushButton *>("transmit")->setChecked(true);
+      QVERIFY(w.findChild<QPushButton *>("transmit")->isChecked());
+    }
+    {
+      Window w(18454, 18568, file);
+      QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
+      for (auto action : w.findChildren<QAction *>())
+        if (action->text() == "Resume transmission")
+          action->setChecked(true);
+      w.findChild<QPushButton *>("transmit")->setChecked(true);
+    }
+    {
+      Window w(18454, 18568, file);
+      QVERIFY(w.findChild<QPushButton *>("transmit")->isChecked());
+      w.findChild<QPushButton *>("transmit")->setChecked(false);
+    }
+    QSettings s(file, QSettings::IniFormat);
+    s.setValue("network/interface", "missing-test-adapter");
+    s.setValue("session/transmitting", true);
+    s.setValue("session/listening", true);
+    s.sync();
+    Window w(18454, 18568, file);
+    QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
+    QVERIFY(!w.findChild<QPushButton *>("listen")->isChecked());
   }
 };
 QTEST_MAIN(WindowTest)

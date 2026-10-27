@@ -29,172 +29,293 @@ public:
 };
 } // namespace
 
-Window::Window(quint16 artPort, quint16 sacnPort)
+Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     : artPort(artPort), sacnPort(sacnPort) {
+  settings =
+      settingsFile.isEmpty()
+          ? std::make_unique<QSettings>(QSettings::IniFormat,
+                                        QSettings::UserScope, "PixelStereo",
+                                        "DMXPulse")
+          : std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
   clock.start();
-  setWindowTitle("DMXPulse • Art-Net / sACN");
-  resize(1500, 920);
+  setWindowTitle("DMXPulse");
+  resize(1440, 900);
   auto root = new QWidget;
   setCentralWidget(root);
   auto layout = new QVBoxLayout(root);
-  layout->setContentsMargins(22, 18, 22, 18);
-  layout->setSpacing(12);
-  auto title = new QLabel("DMXPULSE   /   MONITEUR RÉSEAU");
-  title->setStyleSheet("font-size:24px;font-weight:700;color:#62dfbc");
-  layout->addWidget(title);
-  auto bar = new QHBoxLayout;
+  layout->setContentsMargins(20, 18, 20, 16);
+  layout->setSpacing(14);
+  auto header = new QHBoxLayout;
+  auto title = new QLabel("DMXPulse");
+  title->setObjectName("title");
+  header->addWidget(title);
+  auto subtitle = new QLabel("Network DMX monitor");
+  subtitle->setObjectName("muted");
+  header->addWidget(subtitle);
+  header->addStretch();
+  signal = new QLabel("No signal");
+  signal->setObjectName("signal");
+  header->addWidget(signal);
+  layout->addLayout(header);
+  auto field = [](const QString &label, QWidget *control) {
+    auto box = new QWidget;
+    box->setObjectName("field");
+    auto v = new QVBoxLayout(box);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(6);
+    auto text = new QLabel(label);
+    text->setObjectName("muted");
+    v->addWidget(text);
+    v->addWidget(control);
+    return box;
+  };
+  auto toolbar = new QHBoxLayout;
+  toolbar->setSpacing(12);
   iface = new QComboBox;
-  for (auto n : QNetworkInterface::allInterfaces())
-    if (n.flags().testFlag(QNetworkInterface::IsUp)) {
-      QStringList addresses;
-      for (auto entry : n.addressEntries())
-        if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol)
-          addresses << entry.ip().toString();
-      if (!addresses.isEmpty())
+  iface->setObjectName("networkInterface");
+  iface->setMinimumWidth(280);
+  auto populate = [this] {
+    QString previous = iface->currentData(Qt::UserRole + 1).toString();
+    iface->clear();
+    for (const auto &n : QNetworkInterface::allInterfaces())
+      if (n.flags().testFlag(QNetworkInterface::IsUp)) {
+        QStringList addresses;
+        for (const auto &entry : n.addressEntries())
+          if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol)
+            addresses << entry.ip().toString();
+        if (addresses.isEmpty())
+          continue;
         iface->addItem(
-            QString("%1 (%2) — %3%4")
-                .arg(n.humanReadableName(), n.name(), addresses.join(", "),
+            QString("%1 · %2%3")
+                .arg(n.humanReadableName(), addresses.join(", "),
                      n.flags().testFlag(QNetworkInterface::IsLoopBack)
                          ? " [local]"
                          : ""),
             n.index());
-    }
-  for (int i = 0; i < iface->count(); ++i)
-    if (!QNetworkInterface::interfaceFromIndex(iface->itemData(i).toInt())
-             .flags()
-             .testFlag(QNetworkInterface::IsLoopBack)) {
-      iface->setCurrentIndex(i);
-      break;
-    }
-  auto rescan = new QPushButton("Actualiser");
-  connect(rescan, &QPushButton::clicked, this, [this] {
-    int previous = iface->currentData().toInt();
-    iface->clear();
-    for (auto n : QNetworkInterface::allInterfaces())
-      if (n.flags().testFlag(QNetworkInterface::IsUp)) {
-        QStringList addresses;
-        for (auto entry : n.addressEntries())
-          if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol)
-            addresses << entry.ip().toString();
-        if (!addresses.isEmpty())
-          iface->addItem(
-              QString("%1 (%2) — %3%4")
-                  .arg(n.humanReadableName(), n.name(), addresses.join(", "),
-                       n.flags().testFlag(QNetworkInterface::IsLoopBack)
-                           ? " [local]"
-                           : ""),
-              n.index());
+        iface->setItemData(iface->count() - 1, n.name(), Qt::UserRole + 1);
       }
-    int i = iface->findData(previous);
-    if (i >= 0)
-      iface->setCurrentIndex(i);
-  });
-  bar->addWidget(new QLabel("Interface"));
-  bar->addWidget(iface, 1);
-  listen = new QPushButton("Démarrer l’écoute");
-  listen->setCheckable(true);
-  bar->addWidget(rescan);
-  bar->addWidget(listen);
-  connect(listen, &QPushButton::toggled, rescan, &QPushButton::setDisabled);
-  layout->addLayout(bar);
-  auto controls = new QHBoxLayout;
+    int index = iface->findData(previous, Qt::UserRole + 1);
+    if (index >= 0)
+      iface->setCurrentIndex(index);
+    else
+      for (int i = 0; i < iface->count(); ++i)
+        if (!QNetworkInterface::interfaceFromIndex(iface->itemData(i).toInt())
+                 .flags()
+                 .testFlag(QNetworkInterface::IsLoopBack)) {
+          iface->setCurrentIndex(i);
+          break;
+        }
+  };
+  populate();
+  auto rescan = new QPushButton("Refresh");
+  rescan->setToolTip("Find available network adapters");
+  connect(rescan, &QPushButton::clicked, this, populate);
   protocol = new QComboBox;
+  protocol->setObjectName("protocol");
   protocol->addItems({"Art-Net", "sACN"});
   universe = new QSpinBox;
+  universe->setObjectName("universe");
   universe->setRange(0, 32767);
-  universe->setValue(0);
-  controls->addWidget(new QLabel("Protocole"));
-  controls->addWidget(protocol);
-  controls->addWidget(new QLabel("Univers"));
-  controls->addWidget(universe);
-  priority = new QSpinBox;
-  priority->setRange(0, 200);
-  priority->setValue(100);
-  controls->addWidget(new QLabel("Priorité sACN"));
-  controls->addWidget(priority);
-  destination = new QLineEdit;
-  destination->setPlaceholderText(
-      "Art-Net : IP cible ou broadcast (ex. 192.168.1.255)");
-  controls->addWidget(destination, 1);
-  send = new QPushButton("Activer l’émission • 30 Hz");
-  send->setCheckable(true);
-  connect(send, &QPushButton::toggled, this, [this, rescan](bool) {
-    rescan->setEnabled(!send->isChecked() && !listen->isChecked());
-  });
-  controls->addWidget(send);
-  layout->addLayout(controls);
-  layout->addWidget(new QLabel("GRILLE : NUMÉRO EN HAUT · VALEUR EN BAS · NOIR "
-                               "0 → BLANC 255   •   Cliquez un "
-                               "canal pour régler sa sortie ci-dessous"));
-  auto split = new QSplitter;
-  auto side = new QWidget;
+  universe->setMinimumWidth(100);
+  listen = new QPushButton("Start listening");
+  listen->setObjectName("listen");
+  listen->setCheckable(true);
+  listen->setMinimumWidth(140);
+  toolbar->addWidget(field("Network interface", iface), 1);
+  toolbar->addWidget(field("Adapters", rescan));
+  toolbar->addWidget(field("Protocol", protocol));
+  toolbar->addWidget(field("Universe", universe));
+  toolbar->addWidget(field("Input", listen));
+  layout->addLayout(toolbar);
+  split = new QSplitter;
+  split->setObjectName("workspace");
+  split->setHandleWidth(12);
+  side = new QWidget;
+  side->setMinimumWidth(210);
+  side->setMaximumWidth(360);
   auto sideLayout = new QVBoxLayout(side);
-  sideLayout->setContentsMargins(0, 0, 10, 0);
-  sideLayout->addWidget(new QLabel("FLUX DÉTECTÉS"));
+  sideLayout->setContentsMargins(0, 0, 0, 0);
+  sideLayout->setSpacing(12);
+  auto sourceTitle = new QLabel("Sources");
+  sourceTitle->setObjectName("section");
+  sideLayout->addWidget(sourceTitle);
   sources = new QListWidget;
-  sideLayout->addWidget(sources);
-  auto note = new QLabel(
-      "Art-Net : univers 0–32767\nsACN : univers 1–63999\n\nChaque source "
-      "reste distincte.\nAucune fusion HTP/LTP.\n\nsACN : abonnement multicast "
-      "à\nl’univers choisi, plus unicast.\nArt-Net : datagrammes reçus\nsur "
-      "l’interface choisie.\n\nModifier un canal prépare\nla sortie. Activez "
-      "l’émission\npour envoyer les 512 valeurs.");
-  note->setWordWrap(true);
-  sideLayout->addWidget(note);
+  sources->setObjectName("sources");
+  sources->setMinimumHeight(120);
+  sideLayout->addWidget(sources, 1);
+  auto emptyHelp =
+      new QLabel("Select a source to inspect its universe.\nSources are shown "
+                 "separately; no merge.");
+  emptyHelp->setObjectName("muted");
+  emptyHelp->setWordWrap(true);
+  sideLayout->addWidget(emptyHelp);
+  auto separator = new QFrame;
+  separator->setFrameShape(QFrame::HLine);
+  sideLayout->addWidget(separator);
+  auto editorTitle = new QLabel("Channel inspector");
+  editorTitle->setObjectName("section");
+  sideLayout->addWidget(editorTitle);
+  channel = new QSpinBox;
+  channel->setObjectName("channel");
+  channel->setRange(1, 512);
+  inputValue = new QLabel("—");
+  inputValue->setObjectName("reading");
+  auto inspector = new QHBoxLayout;
+  inspector->addWidget(field("Channel", channel));
+  inspector->addWidget(field("Received", inputValue), 1);
+  sideLayout->addLayout(inspector);
+  value = new QSpinBox;
+  value->setObjectName("outputValue");
+  value->setRange(0, 255);
+  sideLayout->addWidget(field("Output value", value));
+  slider = new QSlider(Qt::Horizontal);
+  slider->setRange(0, 255);
+  sideLayout->addWidget(slider);
+  auto copy = new QPushButton("Copy input to output");
+  copy->setToolTip("Copy all 512 received values into the output buffer");
+  sideLayout->addWidget(copy);
+  auto zero = new QPushButton("Clear output");
+  zero->setToolTip("Set all 512 output channels to zero");
+  sideLayout->addWidget(zero);
+  auto editHint = new QLabel(
+      "Edits change the output buffer. Enable transmission to send them.");
+  editHint->setObjectName("muted");
+  editHint->setWordWrap(true);
+  sideLayout->addWidget(editHint);
   split->addWidget(side);
+  auto canvas = new QWidget;
+  auto canvasLayout = new QVBoxLayout(canvas);
+  canvasLayout->setContentsMargins(0, 0, 0, 0);
+  canvasLayout->setSpacing(10);
+  auto canvasHeader = new QHBoxLayout;
+  universeTitle = new QLabel("Universe 0");
+  universeTitle->setObjectName("section");
+  canvasHeader->addWidget(universeTitle);
+  canvasHeader->addStretch();
+  auto legend = new QLabel("Channel / value    ·    0  ░▒▓  255");
+  legend->setObjectName("muted");
+  canvasHeader->addWidget(legend);
+  canvasLayout->addLayout(canvasHeader);
   grid = new QTableWidget(16, columns);
+  grid->setObjectName("channelGrid");
   grid->horizontalHeader()->hide();
   grid->verticalHeader()->hide();
   grid->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   grid->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   grid->setItemDelegate(new ChannelDelegate(grid));
   grid->horizontalHeader()->setMinimumSectionSize(28);
-  grid->verticalHeader()->setMinimumSectionSize(32);
+  grid->verticalHeader()->setMinimumSectionSize(28);
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
   grid->setSelectionMode(QAbstractItemView::SingleSelection);
-  for (int i = 0; i < 512; i++) {
+  grid->setSelectionBehavior(QAbstractItemView::SelectItems);
+  for (int i = 0; i < 512; ++i) {
     auto item = new QTableWidgetItem;
     item->setTextAlignment(Qt::AlignCenter);
     grid->setItem(i / columns, i % columns, item);
   }
-  split->addWidget(grid);
+  grid->setCurrentCell(0, 0);
+  canvasLayout->addWidget(grid, 1);
+  split->addWidget(canvas);
   split->setStretchFactor(1, 1);
-  split->setSizes({250, 1000});
+  split->setSizes({240, 1160});
   layout->addWidget(split, 1);
-  auto editbar = new QHBoxLayout;
-  channel = new QSpinBox;
-  channel->setRange(1, 512);
-  value = new QSpinBox;
-  value->setRange(0, 255);
-  slider = new QSlider(Qt::Horizontal);
-  slider->setRange(0, 255);
-  editbar->addWidget(new QLabel("Canal"));
-  editbar->addWidget(channel);
-  editbar->addWidget(slider, 1);
-  editbar->addWidget(value);
-  auto copy = new QPushButton("Copier réception → sortie");
-  editbar->addWidget(copy);
-  auto zero = new QPushButton("Sortie à zéro");
-  editbar->addWidget(zero);
-  layout->addLayout(editbar);
+  outputToggle = new QToolButton;
+  outputToggle->setObjectName("outputToggle");
+  outputToggle->setText("Output settings");
+  outputToggle->setCheckable(true);
+  outputToggle->setChecked(true);
+  outputToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+  outputToggle->setArrowType(Qt::DownArrow);
+  layout->addWidget(outputToggle);
+  outputPanel = new QFrame;
+  outputPanel->setObjectName("outputPanel");
+  auto outLayout = new QHBoxLayout(outputPanel);
+  outLayout->setContentsMargins(14, 12, 14, 12);
+  outLayout->setSpacing(12);
+  destination = new QLineEdit;
+  destination->setObjectName("destination");
+  destination->setPlaceholderText("IPv4 address, e.g. 127.0.0.1");
+  destination->setMinimumWidth(230);
+  priority = new QSpinBox;
+  priority->setObjectName("priority");
+  priority->setRange(0, 200);
+  priority->setValue(100);
+  send = new QPushButton("Enable transmission");
+  send->setObjectName("transmit");
+  send->setCheckable(true);
+  send->setMinimumWidth(170);
+  outLayout->addWidget(field("Art-Net destination", destination), 1);
+  outLayout->addWidget(field("sACN priority", priority));
+  auto rate = new QLabel("512 channels · 30 Hz");
+  rate->setObjectName("muted");
+  outLayout->addWidget(rate);
+  outLayout->addWidget(send);
+  layout->addWidget(outputPanel);
+  connect(outputToggle, &QToolButton::toggled, this, [this](bool on) {
+    outputPanel->setVisible(on);
+    outputToggle->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
+  });
   metrics = new QLabel;
+  metrics->setObjectName("muted");
+  layout->addWidget(metrics);
   diagnostics = new QLabel;
   diagnostics->setObjectName("diagnostics");
   diagnostics->setWordWrap(true);
   layout->addWidget(diagnostics);
-  status = new QLabel("Écoute arrêtée • émission arrêtée");
-  layout->addWidget(metrics);
+  status = new QLabel("Input stopped");
+  status->setObjectName("muted");
   layout->addWidget(status);
-  setStyleSheet(
-      "QWidget{background:#101822;color:#dbe5ef;font-size:12px} "
-      "QComboBox,QSpinBox,QLineEdit,QPushButton{background:#202d3b;border:1px "
-      "solid #354759;border-radius:5px;padding:7px} "
-      "QPushButton:checked{background:#176c5c} "
-      "QTableWidget{gridline-color:#243447;border:1px solid #304357} "
-      "QListWidget{background:#162230;border:0} QLabel{color:#aebfd0} "
-      "QSlider::groove:horizontal{height:6px;background:#304357} "
-      "QSlider::handle:horizontal{width:16px;background:#62dfbc;margin:-5px "
-      "0;border-radius:7px}");
+  auto view = menuBar()->addMenu("View");
+  showSources = view->addAction("Sources and inspector");
+  showSources->setCheckable(true);
+  showSources->setChecked(true);
+  connect(showSources, &QAction::toggled, side, &QWidget::setVisible);
+  showDiagnostics = view->addAction("Network diagnostics");
+  showDiagnostics->setCheckable(true);
+  showDiagnostics->setChecked(false);
+  connect(showDiagnostics, &QAction::toggled, diagnostics,
+          &QWidget::setVisible);
+  diagnostics->hide();
+  auto startup = menuBar()->addMenu("Startup");
+  resumeReceive = startup->addAction("Resume listening");
+  resumeReceive->setCheckable(true);
+  resumeReceive->setChecked(true);
+  resumeSend = startup->addAction("Resume transmission");
+  resumeSend->setCheckable(true);
+  resumeSend->setToolTip(
+      "Restore the last transmission state, including output values");
+  setStyleSheet(R"(
+    QWidget { background:#171819; color:#e5e5e5; font-size:12px; }
+    QLabel, QWidget#field { background:transparent; }
+    QLabel#title { font-size:23px; font-weight:600; color:#fafafa; }
+    QLabel#section { font-size:13px; font-weight:600; color:#ededed; }
+    QLabel#muted { color:#96999d; }
+    QLabel#reading { font-size:22px; font-weight:600; }
+    QLabel#signal { background:#242628; border-radius:10px; padding:6px 12px; color:#b7babe; }
+    QComboBox,QSpinBox,QLineEdit { background:#222426; border:1px solid #393c3f; border-radius:5px; padding:7px; min-height:17px; selection-background-color:#3c665e; }
+    QComboBox:focus,QSpinBox:focus,QLineEdit:focus { border-color:#9cb8af; }
+    QPushButton { background:#292c2e; border:1px solid #404346; border-radius:5px; padding:8px 12px; }
+    QPushButton:hover { background:#35393b; }
+    QPushButton:checked { background:#314c44; border-color:#6e9b8c; color:#ebfff6; }
+    QPushButton#transmit:checked { background:#54452b; border-color:#b5965c; color:#fff0cf; }
+    QWidget:disabled { color:#686c70; }
+    QTableWidget { gridline-color:#303234; border:1px solid #36393b; background:#000; }
+    QListWidget { background:#1d1f20; border:1px solid #333638; border-radius:5px; outline:0; }
+    QListWidget::item { padding:10px 8px; border-bottom:1px solid #303234; }
+    QListWidget::item:selected { background:#303a36; color:#f3fff9; }
+    QFrame#outputPanel { background:#1e2021; border:1px solid #343739; border-radius:7px; }
+    QToolButton { border:0; padding:2px; color:#b8bcbe; }
+    QSlider::groove:horizontal { height:4px; background:#393d40; border-radius:2px; }
+    QSlider::handle:horizontal { width:12px; background:#c1d4cb; margin:-4px 0; border-radius:6px; }
+    QLabel#diagnostics { background:#202223; padding:10px; color:#a9afb2; border-radius:5px; }
+    QMenuBar { background:#171819; } QMenu { background:#242628; } QMenu::item:selected { background:#3c4842; }
+  )");
+  connect(listen, &QPushButton::toggled, this, [this, rescan](bool) {
+    rescan->setEnabled(!listen->isChecked() && !send->isChecked());
+  });
+  connect(send, &QPushButton::toggled, this, [this, rescan](bool) {
+    rescan->setEnabled(!listen->isChecked() && !send->isChecked());
+  });
   connect(listen, &QPushButton::toggled, this, [this](bool on) {
     if (on)
       start();
@@ -211,6 +332,7 @@ Window::Window(quint16 artPort, quint16 sacnPort)
     selected.clear();
     if (listen->isChecked())
       join(protocol->currentIndex() ? universe->value() : 0);
+    updateControls();
     render();
   });
   connect(universe, &QSpinBox::valueChanged, this, [this] {
@@ -236,7 +358,14 @@ Window::Window(quint16 artPort, quint16 sacnPort)
     value->setValue(quint8(output[channel->value() - 1]));
     slider->setValue(value->value());
     updating = false;
+    grid->setCurrentCell((channel->value() - 1) / columns,
+                         (channel->value() - 1) % columns);
   });
+  connect(grid->selectionModel(), &QItemSelectionModel::currentChanged, this,
+          [this](const QModelIndex &current) {
+            if (current.isValid())
+              channel->setValue(current.row() * columns + current.column() + 1);
+          });
   connect(value, &QSpinBox::valueChanged, this, [this](int v) {
     if (!updating)
       edit(v);
@@ -263,6 +392,7 @@ Window::Window(quint16 artPort, quint16 sacnPort)
       iface->setEnabled(!listen->isChecked());
       destination->setEnabled(true);
       priority->setEnabled(true);
+      updateControls();
       return;
     }
     QHostAddress target(destination->text());
@@ -270,7 +400,7 @@ Window::Window(quint16 artPort, quint16 sacnPort)
         (target.isNull() ||
          target.protocol() != QAbstractSocket::IPv4Protocol)) {
       send->setChecked(false);
-      status->setText("Saisissez une adresse IPv4 Art-Net valide.");
+      status->setText("Enter a valid Art-Net destination IPv4 address.");
       return;
     }
     network =
@@ -282,13 +412,17 @@ Window::Window(quint16 artPort, quint16 sacnPort)
     destination->setEnabled(false);
     priority->setEnabled(false);
     sendTimer.start(33);
+    updateControls();
   });
   connect(&sendTimer, &QTimer::timeout, this, [this] { transmit(); });
   connect(&refresh, &QTimer::timeout, this, &Window::render);
   refresh.start(100);
+  restoreSettings();
+  updateControls();
   render();
 }
 Window::~Window() {
+  saveSettings();
   endSend();
   stop();
 }
@@ -296,7 +430,7 @@ void Window::endSend() { send->setChecked(false); }
 void Window::start() {
   if (iface->currentIndex() < 0) {
     listen->setChecked(false);
-    status->setText("Aucune interface IPv4 active. Cliquez Actualiser.");
+    status->setText("No active IPv4 interface. Click Refresh.");
     return;
   }
   network = QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
@@ -314,29 +448,29 @@ void Window::start() {
                         : sacn.errorString();
     stop();
     listen->setChecked(false);
-    status->setText("Échec de l’écoute : " + error);
+    status->setText("Could not start listening: " + error);
     return;
   }
   datagrams = received = invalid = otherInterface = 0;
   streams.clear();
   selected.clear();
   iface->setEnabled(false);
-  status->setText(QString("Écoute Art-Net %1:%2 / sACN UDP %3")
+  status->setText(QString("Listening on Art-Net %1:%2 · sACN UDP %3")
                       .arg(art.localAddress().toString())
                       .arg(artPort)
                       .arg(sacnPort));
   if (protocol->currentIndex())
     join(universe->value());
-  listen->setText("Arrêter l’écoute");
+  listen->setText("Stop listening");
 }
 void Window::stop() {
   art.close();
   sacn.close();
   groups.clear();
   iface->setEnabled(!send->isChecked());
-  listen->setText("Démarrer l’écoute");
+  listen->setText("Start listening");
   if (status)
-    status->setText("Écoute arrêtée");
+    status->setText("Input stopped");
 }
 void Window::join(int u) {
   if (sacn.state() != QAbstractSocket::BoundState)
@@ -353,7 +487,7 @@ void Window::join(int u) {
           network))
     groups.insert(u);
   else
-    status->setText("Échec abonnement multicast : " + sacn.errorString());
+    status->setText("Could not join multicast group: " + sacn.errorString());
 }
 void Window::receive(QUdpSocket *socket, bool isSacn) {
   int budget = 256;
@@ -422,21 +556,31 @@ void Window::render() {
       i = streams.erase(i);
     else
       ++i;
-  sources->clear();
+  for (int row = sources->count() - 1; row >= 0; --row)
+    if (!streams.contains(sources->item(row)->data(Qt::UserRole).toString()))
+      delete sources->takeItem(row);
   for (auto i = streams.cbegin(); i != streams.cend(); ++i) {
-    auto &s = i.value();
-    auto item = new QListWidgetItem(
-        QString("%1 · U%2   %3\n%4 %5\n%6 paquets · priorité %7")
+    const auto &s = i.value();
+    QListWidgetItem *item = nullptr;
+    for (int row = 0; row < sources->count(); ++row)
+      if (sources->item(row)->data(Qt::UserRole).toString() == i.key()) {
+        item = sources->item(row);
+        break;
+      }
+    if (!item) {
+      item = new QListWidgetItem(sources);
+      item->setData(Qt::UserRole, i.key());
+    }
+    item->setText(
+        QString("%1 · Universe %2  %3\n%4%5\n%6 packets · priority %7")
             .arg(s.frame.sacn ? "sACN" : "Art-Net")
             .arg(s.frame.universe)
             .arg(now - s.seen < 2500 ? "●" : "○")
-            .arg(s.ip, s.frame.name)
+            .arg(s.ip,
+                 s.frame.name.isEmpty() ? QString() : " · " + s.frame.name)
             .arg(s.packets)
-            .arg(s.frame.priority),
-        sources);
-    item->setData(Qt::UserRole, i.key());
-    if (i.key() == selected)
-      item->setSelected(true);
+            .arg(s.frame.priority));
+    item->setSelected(i.key() == selected);
   }
   bool live = streams.contains(selected) && now - streams[selected].seen < 2500;
   QByteArray rx = streams.contains(selected) ? streams[selected].frame.values
@@ -450,7 +594,7 @@ void Window::render() {
     item->setText(QString("%1\n%2").arg(i + 1).arg(v));
     item->setBackground(QColor(v, v, v));
     item->setForeground(v < 128 ? QColor(Qt::white) : QColor(Qt::black));
-    item->setToolTip(QString("Canal %1\nRéception : %2\nSortie : %3")
+    item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
                          .arg(i + 1)
                          .arg(v)
                          .arg(out));
@@ -458,37 +602,46 @@ void Window::render() {
   QString hint;
   if (listen->isChecked()) {
     if (!datagrams)
-      hint = "Aucun datagramme : vérifiez la destination MadMapper et le "
-             "partage du port 6454. En local, choisissez 127.0.0.1 et démarrez "
-             "l’écoute après MadMapper.";
+      hint = "No UDP packets. Check the sender destination and port sharing. "
+             "For local Art-Net, select 127.0.0.1 and start listening after "
+             "the sender.";
     else if (!received && otherInterface)
-      hint = "Trafic reçu sur une autre interface : choisissez celle utilisée "
-             "par MadMapper.";
+      hint = "Traffic arrived on a different interface. Select the adapter "
+             "used by the sender.";
     else if (!received)
-      hint = "Trafic UDP présent, mais aucun paquet DMX pris en charge.";
+      hint = "UDP traffic detected, but no supported DMX data packets.";
     else if (!streams.contains(selected))
-      hint = "Des flux DMX sont présents : cliquez un flux dans la liste pour "
-             "choisir son protocole et son univers.";
+      hint = "DMX sources detected. Select a source to inspect its universe.";
   }
-  diagnostics->setText(QString("UDP : %1 · DMX : %2 · autre interface : %3 · "
-                               "non-DMX / non pris en charge : %4\n%5")
-                           .arg(datagrams)
-                           .arg(received)
-                           .arg(otherInterface)
-                           .arg(invalid)
-                           .arg(hint));
+  diagnostics->setText(
+      QString("UDP %1  ·  DMX %2  ·  Other interface %3  ·  Unsupported %4\n%5")
+          .arg(datagrams)
+          .arg(received)
+          .arg(otherInterface)
+          .arg(invalid)
+          .arg(hint));
+  signal->setText(live                         ? "● Live input"
+                  : streams.contains(selected) ? "○ Stale input"
+                                               : "○ No signal");
+  universeTitle->setText(QString("Universe %1").arg(universe->value()));
+  inputValue->setText(streams.contains(selected)
+                          ? QString::number(quint8(rx[channel->value() - 1]))
+                          : QString("—"));
+  inputValue->setToolTip(live ? "Live received value"
+                              : "No live input; last value is retained");
   updating = true;
   value->setValue(quint8(output[channel->value() - 1]));
   slider->setValue(value->value());
   updating = false;
   metrics->setText(
-      QString("%1  •  %2 canaux actifs  •  %3 paquets reçus  •  %4 paquets "
-              "ignorés  •  Sortie %5")
-          .arg(live ? "SIGNAL ACTIF" : "AUCUN SIGNAL / SIGNAL PÉRIMÉ")
+      QString(
+          "%1  ·  %2 active channels  ·  %3 received packets  ·  %4 packets "
+          "ignored  ·  Output %5")
+          .arg(live ? "Live" : "No signal / stale")
           .arg(active)
           .arg(received)
           .arg(invalid)
-          .arg(sendTimer.isActive() ? "EN ÉMISSION" : "ARRÊTÉE"));
+          .arg(sendTimer.isActive() ? "transmitting" : "off"));
 }
 void Window::transmit(bool terminated) {
   Frame f;
@@ -513,8 +666,7 @@ void Window::transmit(bool terminated) {
         break;
       }
     if (local.isNull() || !tx.bind(local, 0)) {
-      status->setText(
-          "Impossible de lier la sortie à l’interface sélectionnée");
+      status->setText("Could not bind output to the selected interface");
       endSend();
       return;
     }
@@ -525,7 +677,81 @@ void Window::transmit(bool terminated) {
                        f.sacn ? sacnPort : artPort) < 0) {
     if (terminated)
       return;
-    status->setText("Erreur émission : " + tx.errorString());
+    status->setText("Transmission error: " + tx.errorString());
     endSend();
   }
+}
+
+void Window::updateControls() {
+  bool transmitting = send->isChecked();
+  send->setText(transmitting ? "Stop transmission" : "Enable transmission");
+  priority->setEnabled(protocol->currentIndex() == 1 && !transmitting);
+  destination->setEnabled(protocol->currentIndex() == 0 && !transmitting);
+  universe->setToolTip(protocol->currentIndex()
+                           ? "sACN universes: 1–63999"
+                           : "Art-Net universes: 0–32767 (zero-based)");
+  destination->setToolTip(
+      protocol->currentIndex()
+          ? "sACN output uses the universe multicast address"
+          : "Unicast or broadcast IPv4 destination");
+}
+void Window::restoreSettings() {
+  auto &s = *settings;
+  restoreGeometry(s.value("window/geometry").toByteArray());
+  split->restoreState(s.value("window/splitter").toByteArray());
+  auto savedInterface = s.value("network/interface").toString();
+  int index = iface->findData(savedInterface, Qt::UserRole + 1);
+  if (index >= 0)
+    iface->setCurrentIndex(index);
+  else if (!savedInterface.isEmpty())
+    status->setText("Saved network interface is unavailable. Choose an "
+                    "interface before listening.");
+  protocol->setCurrentIndex(
+      qBound(0, s.value("network/protocol", 0).toInt(), 1));
+  universe->setValue(s.value("network/universe", 0).toInt());
+  destination->setText(s.value("output/destination").toString());
+  priority->setValue(s.value("output/priority", 100).toInt());
+  auto savedOutput = s.value("output/values").toByteArray();
+  if (savedOutput.size() == 512)
+    output = savedOutput;
+  channel->setValue(s.value("view/channel", 1).toInt());
+  grid->setCurrentCell((channel->value() - 1) / columns,
+                       (channel->value() - 1) % columns);
+  showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
+  showSources->setChecked(s.value("view/sources", true).toBool());
+  outputToggle->setChecked(s.value("view/output", true).toBool());
+  resumeReceive->setChecked(s.value("startup/receive", true).toBool());
+  resumeSend->setChecked(s.value("startup/transmit", false).toBool());
+  if (index >= 0) {
+    if (resumeReceive->isChecked() &&
+        s.value("session/listening", false).toBool())
+      listen->setChecked(true);
+    if (resumeSend->isChecked() &&
+        s.value("session/transmitting", false).toBool())
+      send->setChecked(true);
+  }
+}
+void Window::saveSettings() {
+  auto &s = *settings;
+  s.setValue("window/geometry", saveGeometry());
+  s.setValue("window/splitter", split->saveState());
+  s.setValue("network/interface", iface->currentData(Qt::UserRole + 1));
+  s.setValue("network/protocol", protocol->currentIndex());
+  s.setValue("network/universe", universe->value());
+  s.setValue("output/destination", destination->text());
+  s.setValue("output/priority", priority->value());
+  s.setValue("output/values", output);
+  s.setValue("view/channel", channel->value());
+  s.setValue("view/diagnostics", showDiagnostics->isChecked());
+  s.setValue("view/sources", showSources->isChecked());
+  s.setValue("view/output", outputToggle->isChecked());
+  s.setValue("startup/receive", resumeReceive->isChecked());
+  s.setValue("startup/transmit", resumeSend->isChecked());
+  s.setValue("session/listening", listen->isChecked());
+  s.setValue("session/transmitting", send->isChecked());
+  s.sync();
+}
+void Window::closeEvent(QCloseEvent *event) {
+  saveSettings();
+  QMainWindow::closeEvent(event);
 }

@@ -5,7 +5,8 @@
 class Window : public QMainWindow {
   Q_OBJECT
 public:
-  Window(quint16 artPort = 6454, quint16 sacnPort = 5568);
+  Window(quint16 artPort = 6454, quint16 sacnPort = 5568,
+         const QString &settingsFile = {});
   ~Window();
 
 private:
@@ -28,7 +29,20 @@ private:
   QPushButton *listen, *send;
   QListWidget *sources;
   QTableWidget *grid;
-  QLabel *status, *metrics;
+  QLabel *status, *metrics, *signal, *universeTitle, *inputValue;
+  QSplitter *split;
+  QWidget *side, *outputPanel;
+  QToolButton *outputToggle;
+  QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;
+  std::unique_ptr<QSettings> settings;
+  void restoreSettings();
+  void saveSettings();
+  void updateControls();
+
+protected:
+  void closeEvent(QCloseEvent *event) override;
+
+private:
   QSlider *slider;
   QSet<int> groups;
   QNetworkInterface network;
