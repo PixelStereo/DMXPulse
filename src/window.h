@@ -33,7 +33,8 @@ private:
   QSet<int> groups;
   QNetworkInterface network;
   quint8 sequence = 0;
-  quint64 received = 0, invalid = 0;
+  quint64 received = 0, invalid = 0, datagrams = 0, otherInterface = 0;
+  QLabel *diagnostics;
   bool updating = false;
   void start();
   void stop();

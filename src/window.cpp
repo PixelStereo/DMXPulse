@@ -1,9 +1,39 @@
 #include "window.h"
+namespace {
+constexpr int columns = 32;
+class ChannelDelegate : public QStyledItemDelegate {
+public:
+  using QStyledItemDelegate::QStyledItemDelegate;
+  void paint(QPainter *p, const QStyleOptionViewItem &option,
+             const QModelIndex &index) const override {
+    p->save();
+    p->fillRect(option.rect, index.data(Qt::BackgroundRole).value<QBrush>());
+    p->setPen(index.data(Qt::ForegroundRole).value<QBrush>().color());
+    const auto lines = index.data().toString().split('\n');
+    QRect top = option.rect.adjusted(1, 1, -1, -1);
+    top.setHeight(top.height() / 2);
+    QRect bottom = top.translated(0, top.height());
+    QFont font = option.font;
+    font.setPixelSize(qBound(10, top.height() - 2, 14));
+    p->setFont(font);
+    p->drawText(top, Qt::AlignCenter, lines.value(0));
+    font.setBold(true);
+    p->setFont(font);
+    p->drawText(bottom, Qt::AlignCenter, lines.value(1));
+    if (option.state & QStyle::State_Selected) {
+      p->setPen(QPen(QColor("#31c9a0"), 2));
+      p->drawRect(option.rect.adjusted(1, 1, -2, -2));
+    }
+    p->restore();
+  }
+};
+} // namespace
+
 Window::Window(quint16 artPort, quint16 sacnPort)
     : artPort(artPort), sacnPort(sacnPort) {
   clock.start();
   setWindowTitle("DMXPulse • Art-Net / sACN");
-  resize(1320, 920);
+  resize(1500, 920);
   auto root = new QWidget;
   setCentralWidget(root);
   auto layout = new QVBoxLayout(root);
@@ -72,7 +102,7 @@ Window::Window(quint16 artPort, quint16 sacnPort)
   protocol->addItems({"Art-Net", "sACN"});
   universe = new QSpinBox;
   universe->setRange(0, 32767);
-  universe->setValue(1);
+  universe->setValue(0);
   controls->addWidget(new QLabel("Protocole"));
   controls->addWidget(protocol);
   controls->addWidget(new QLabel("Univers"));
@@ -93,7 +123,8 @@ Window::Window(quint16 artPort, quint16 sacnPort)
   });
   controls->addWidget(send);
   layout->addLayout(controls);
-  layout->addWidget(new QLabel("GRILLE : CANAL : VALEUR REÇUE   •   Cliquez un "
+  layout->addWidget(new QLabel("GRILLE : NUMÉRO EN HAUT · VALEUR EN BAS · NOIR "
+                               "0 → BLANC 255   •   Cliquez un "
                                "canal pour régler sa sortie ci-dessous"));
   auto split = new QSplitter;
   auto side = new QWidget;
@@ -111,18 +142,20 @@ Window::Window(quint16 artPort, quint16 sacnPort)
   note->setWordWrap(true);
   sideLayout->addWidget(note);
   split->addWidget(side);
-  grid = new QTableWidget(32, 16);
+  grid = new QTableWidget(16, columns);
   grid->horizontalHeader()->hide();
   grid->verticalHeader()->hide();
   grid->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   grid->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  grid->setFont(QFont("Menlo", 10));
+  grid->setItemDelegate(new ChannelDelegate(grid));
+  grid->horizontalHeader()->setMinimumSectionSize(28);
+  grid->verticalHeader()->setMinimumSectionSize(32);
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
   grid->setSelectionMode(QAbstractItemView::SingleSelection);
   for (int i = 0; i < 512; i++) {
     auto item = new QTableWidgetItem;
     item->setTextAlignment(Qt::AlignCenter);
-    grid->setItem(i / 16, i % 16, item);
+    grid->setItem(i / columns, i % columns, item);
   }
   split->addWidget(grid);
   split->setStretchFactor(1, 1);
@@ -145,6 +178,10 @@ Window::Window(quint16 artPort, quint16 sacnPort)
   editbar->addWidget(zero);
   layout->addLayout(editbar);
   metrics = new QLabel;
+  diagnostics = new QLabel;
+  diagnostics->setObjectName("diagnostics");
+  diagnostics->setWordWrap(true);
+  layout->addWidget(diagnostics);
   status = new QLabel("Écoute arrêtée • émission arrêtée");
   layout->addWidget(metrics);
   layout->addWidget(status);
@@ -173,14 +210,14 @@ Window::Window(quint16 artPort, quint16 sacnPort)
                        protocol->currentIndex() ? 63999 : 32767);
     selected.clear();
     if (listen->isChecked())
-      join(universe->value());
+      join(protocol->currentIndex() ? universe->value() : 0);
     render();
   });
   connect(universe, &QSpinBox::valueChanged, this, [this] {
     endSend();
     selected.clear();
     if (listen->isChecked())
-      join(universe->value());
+      join(protocol->currentIndex() ? universe->value() : 0);
     render();
   });
   connect(sources, &QListWidget::itemClicked, this, [this](QListWidgetItem *i) {
@@ -193,7 +230,7 @@ Window::Window(quint16 artPort, quint16 sacnPort)
     selectStream();
   });
   connect(grid, &QTableWidget::cellClicked, this,
-          [this](int r, int c) { channel->setValue(r * 16 + c + 1); });
+          [this](int r, int c) { channel->setValue(r * columns + c + 1); });
   connect(channel, &QSpinBox::valueChanged, this, [this] {
     updating = true;
     value->setValue(quint8(output[channel->value() - 1]));
@@ -264,7 +301,13 @@ void Window::start() {
   }
   network = QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
   auto flags = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
-  if (!art.bind(QHostAddress::AnyIPv4, artPort, flags) ||
+  // A specific loopback listener avoids losing local unicast to a more
+  // specific listener owned by another lighting application.
+  QHostAddress artAddress =
+      network.flags().testFlag(QNetworkInterface::IsLoopBack)
+          ? QHostAddress(QHostAddress::LocalHost)
+          : QHostAddress(QHostAddress::AnyIPv4);
+  if (!art.bind(artAddress, artPort, flags) ||
       !sacn.bind(QHostAddress::AnyIPv4, sacnPort, flags)) {
     QString error = art.state() != QAbstractSocket::BoundState
                         ? art.errorString()
@@ -274,9 +317,16 @@ void Window::start() {
     status->setText("Échec de l’écoute : " + error);
     return;
   }
+  datagrams = received = invalid = otherInterface = 0;
+  streams.clear();
+  selected.clear();
   iface->setEnabled(false);
-  join(universe->value());
-  status->setText("Écoute UDP active : Art-Net 6454 / sACN 5568");
+  status->setText(QString("Écoute Art-Net %1:%2 / sACN UDP %3")
+                      .arg(art.localAddress().toString())
+                      .arg(artPort)
+                      .arg(sacnPort));
+  if (protocol->currentIndex())
+    join(universe->value());
   listen->setText("Arrêter l’écoute");
 }
 void Window::stop() {
@@ -309,14 +359,20 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
   int budget = 256;
   while (socket->hasPendingDatagrams() && budget--) {
     auto d = socket->receiveDatagram();
+    ++datagrams;
     if (d.interfaceIndex() != 0 &&
         d.interfaceIndex() != uint(network.index())) {
       bool local = false;
       for (auto entry : network.addressEntries())
         if (entry.ip() == d.senderAddress())
           local = true;
-      if (!local)
+      // Same-machine traffic may be delivered through the loopback interface.
+      if (d.senderAddress().isLoopback())
+        local = true;
+      if (!local) {
+        ++otherInterface;
         continue;
+      }
     }
     Frame f;
     if (!Protocol::decode(d.data(), isSacn, f)) {
@@ -390,17 +446,37 @@ void Window::render() {
     int v = quint8(rx[i]), out = quint8(output[i]);
     if (v)
       active++;
-    auto item = grid->item(i / 16, i % 16);
-    item->setText(QString("%1:%2")
-                      .arg(i + 1, 3, 10, QChar('0'))
-                      .arg(v, 3, 10, QChar('0')));
-    item->setBackground(QColor(18 + v / 8, 32 + v / 3, 44 + v / 5));
-    item->setForeground(live ? QColor("#e5fff6") : QColor("#8592a3"));
+    auto item = grid->item(i / columns, i % columns);
+    item->setText(QString("%1\n%2").arg(i + 1).arg(v));
+    item->setBackground(QColor(v, v, v));
+    item->setForeground(v < 128 ? QColor(Qt::white) : QColor(Qt::black));
     item->setToolTip(QString("Canal %1\nRéception : %2\nSortie : %3")
                          .arg(i + 1)
                          .arg(v)
                          .arg(out));
   }
+  QString hint;
+  if (listen->isChecked()) {
+    if (!datagrams)
+      hint = "Aucun datagramme : vérifiez la destination MadMapper et le "
+             "partage du port 6454. En local, choisissez 127.0.0.1 et démarrez "
+             "l’écoute après MadMapper.";
+    else if (!received && otherInterface)
+      hint = "Trafic reçu sur une autre interface : choisissez celle utilisée "
+             "par MadMapper.";
+    else if (!received)
+      hint = "Trafic UDP présent, mais aucun paquet DMX pris en charge.";
+    else if (!streams.contains(selected))
+      hint = "Des flux DMX sont présents : cliquez un flux dans la liste pour "
+             "choisir son protocole et son univers.";
+  }
+  diagnostics->setText(QString("UDP : %1 · DMX : %2 · autre interface : %3 · "
+                               "non-DMX / non pris en charge : %4\n%5")
+                           .arg(datagrams)
+                           .arg(received)
+                           .arg(otherInterface)
+                           .arg(invalid)
+                           .arg(hint));
   updating = true;
   value->setValue(quint8(output[channel->value() - 1]));
   slider->setValue(value->value());

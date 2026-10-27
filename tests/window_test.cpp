@@ -4,6 +4,11 @@ class WindowTest : public QObject {
   Q_OBJECT
 private slots:
   void receiveAndEdit() {
+    // Reproduce a lighting sender that also listens on the local Art-Net port.
+    QUdpSocket competitor;
+    QVERIFY(competitor.bind(QHostAddress::LocalHost, 16454,
+                            QUdpSocket::ShareAddress |
+                                QUdpSocket::ReuseAddressHint));
     Window w(16454, 15568);
     w.show();
     for (auto combo : w.findChildren<QComboBox *>())
@@ -25,7 +30,7 @@ private slots:
     QVERIFY(listen->isChecked());
     QUdpSocket socket;
     Frame f;
-    f.universe = 1;
+    f.universe = 0;
     f.sequence = 1;
     f.values = QByteArray(512, 0);
     f.values[0] = char(231);
@@ -43,6 +48,12 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("231"), 2000);
     auto sources = w.findChild<QListWidget *>();
     QCOMPARE(sources->count(), 1);
+    QCOMPARE(grid->rowCount(), 16);
+    QCOMPARE(grid->columnCount(), 32);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n231"));
+    QCOMPARE(grid->item(0, 0)->background().color(), QColor(231, 231, 231));
+    QCOMPARE(grid->item(0, 0)->foreground().color(), QColor(Qt::black));
+    QCOMPARE(grid->item(0, 1)->background().color(), QColor(Qt::black));
     auto boxes = w.findChildren<QSpinBox *>();
     QSpinBox *value = nullptr;
     for (auto b : boxes)
@@ -67,11 +78,12 @@ private slots:
     QVERIFY(protocol);
     protocol->setCurrentIndex(1);
     f.sacn = true;
+    f.universe = 1;
     f.cid = QUuid::createUuid().toRfc4122();
     f.sequence = 1;
     f.values[0] = char(99);
     socket.writeDatagram(Protocol::encode(f), local, 15568);
-    QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("099"), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("\n99"), 2000);
     listen->click();
     QVERIFY(!listen->isChecked());
   }

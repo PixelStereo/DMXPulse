@@ -7,7 +7,7 @@ Application native pour macOS, Windows et Linux. Interface en français.
 1. Choisir l’interface réseau (nom et IPv4, bouton Actualiser pour rechercher les adaptateurs branchés à chaud) et démarrer l’écoute. Autoriser le réseau local / UDP dans le pare-feu si nécessaire.
 2. Choisir Art-Net ou sACN et le numéro d’univers. Les numéros Art-Net sont **zéro-based (0–32767)** ; sACN utilise **1–63999**.
 3. Cliquer sur une source dans la liste pour afficher ses 512 canaux. Les données sans actualisation depuis 2,5 secondes sont grisées ; les sources sont conservées 60 secondes.
-4. Cliquer sur un canal puis ajuster sa valeur entre 0 et 255 au curseur ou au champ numérique. Chaque case affiche `canal:valeur reçue`. Le champ sous la grille affiche la valeur de sortie du canal sélectionné ; l’infobulle de chaque case détaille réception et sortie.
+4. Cliquer sur un canal puis ajuster sa valeur entre 0 et 255 au curseur ou au champ numérique. Chaque case affiche le numéro de canal en haut et la valeur reçue en dessous. Le fond suit le niveau de gris DMX : 0 = noir, 255 = blanc ; le texte change de contraste. La grille comporte 32 colonnes et 16 lignes. Le champ sous la grille affiche la valeur de sortie du canal sélectionné ; l’infobulle de chaque case détaille réception et sortie.
 5. Pour reprendre un état reçu, cliquer **Copier réception → sortie**. La sortie démarre à zéro et constitue un univers entier de 512 canaux ; elle n’est pas fusionnée automatiquement avec la réception.
 6. Art-Net : saisir une IPv4 de destination unicast ou broadcast adaptée au réseau. sACN : destination multicast automatique `239.255.HI.LO`.
 7. Activer l’émission : la sortie est envoyée à 30 Hz environ. **Sortie à zéro** met tous les canaux de sortie à 0 ; si l’émission est active, ce changement est immédiatement émis au prochain cycle. Arrêter l’émission laisse le comportement final aux récepteurs ; sACN envoie trois paquets de terminaison.
@@ -40,3 +40,9 @@ Tests QtTest : encodage/décodage des deux protocoles, 512 canaux, limites des u
 - ANSI E1.31-2018 : https://tsp.esta.org/tsp/documents/docs/E1-31-2018.pdf
 
 Les sources sont prévues pour macOS, Windows et Linux. La compilation et les tests ont été exécutés sur macOS Apple Silicon avec Qt 6.12. Les paquets de distribution restent à préparer.
+
+## MadMapper sur le même ordinateur
+
+Choisir l’interface locale `127.0.0.1 [local]`, puis démarrer l’écoute **après** MadMapper. Configurer sa sortie Art-Net unicast vers `127.0.0.1`. DMXPulse lie alors son écoute Art-Net explicitement à `127.0.0.1:6454`, plutôt qu’à toutes les adresses. La sélection initiale est l’univers Art-Net 0 ; cliquer sur un flux détecté permet de sélectionner son univers réel.
+
+Deux logiciels qui écoutent le même port UDP ne reçoivent pas nécessairement chacun une copie des paquets unicast. Si MadMapper rouvre son port, arrêter puis redémarrer l’écoute DMXPulse. Si le système refuse le partage, désactiver l’entrée Art-Net de MadMapper ou utiliser une sortie broadcast / sACN multicast adaptée à l’interface. DMXPulse ne capture pas les paquets adressés exclusivement à un autre équipement. Les compteurs UDP / DMX / autre interface / non-DMX permettent de localiser le problème ; les paquets ArtPoll ne sont pas des valeurs DMX.
