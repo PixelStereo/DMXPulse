@@ -35,7 +35,7 @@ Stopping transmission does not guarantee a blackout: receivers determine their o
 
 Choose the local `127.0.0.1` interface, Art-Net, and an output destination of `127.0.0.1`. Prepare values, then enable transmission. Only returned network packets populate the grid.
 
-When using another sender on the same computer, start DMXPulse listening after that sender. Applications sharing a unicast UDP port do not necessarily each receive a copy. If the sender reopens its port, restart listening. A listener for the selected adapter's specific IPv4 address helps local unicast coexist with a general broadcast listener.
+When using another sender on the same computer, start DMXPulse listening after that sender. Applications sharing a unicast UDP port do not necessarily each receive a copy; Windows in particular does not guarantee delivery between duplicate binds. If the sender reopens its port, restart listening. A listener for the selected adapter's specific IPv4 address helps local unicast coexist with a general broadcast listener.
 
 ## Diagnose missing input
 

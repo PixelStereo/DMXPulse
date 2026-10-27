@@ -4,11 +4,15 @@ class WindowTest : public QObject {
   Q_OBJECT
 private slots:
   void receiveAndEdit() {
-    // Reproduce a lighting sender that also listens on the local Art-Net port.
+    // Exact duplicate unicast binds are intentionally indeterminate on Windows.
+    // Keep the receive regression isolated there; exercise Unix port sharing
+    // here.
+#ifndef Q_OS_WIN
     QUdpSocket competitor;
     QVERIFY(competitor.bind(QHostAddress::LocalHost, 16454,
                             QUdpSocket::ShareAddress |
                                 QUdpSocket::ReuseAddressHint));
+#endif
     QTemporaryDir settingsDir;
     Window w(16454, 15568, settingsDir.filePath("settings.ini"));
     w.show();

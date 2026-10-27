@@ -51,7 +51,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   columns = compact ? 8 : 32;
   clock.start();
   setWindowTitle("DMXPulse");
-  resize(compact?390:1440,compact?844:900);
+  resize(compact ? 390 : 1440, compact ? 844 : 900);
   auto root = new QWidget;
   setCentralWidget(root);
   auto layout = new QVBoxLayout(root);
@@ -331,6 +331,34 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(showDiagnostics, &QAction::toggled, diagnostics,
           &QWidget::setVisible);
   diagnostics->hide();
+  auto help = menuBar()->addMenu("Help");
+  auto about = help->addAction("About DMXPulse");
+  connect(about, &QAction::triggered, this, [this] {
+    QMessageBox::about(this, "About DMXPulse",
+                       "<b>DMXPulse</b><br>Art-Net and sACN network DMX "
+                       "monitor.<br>PixelStereo · MIT license<br><a "
+                       "href=\"https://github.com/PixelStereo/"
+                       "DMXPulse\">Project and source code</a>");
+  });
+  auto legal = help->addAction("Licenses");
+  connect(legal, &QAction::triggered, this, [this] {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Licenses");
+    dialog.resize(620, 480);
+    auto layout = new QVBoxLayout(&dialog);
+    auto text = new QTextBrowser;
+    QString contents;
+    for (const auto &path :
+         {":/legal/LICENSE", ":/legal/THIRD-PARTY-NOTICES.md",
+          ":/legal/licenses/LGPL-3.0.txt", ":/legal/licenses/GPL-3.0.txt"}) {
+      QFile file(path);
+      if (file.open(QIODevice::ReadOnly))
+        contents += QString::fromUtf8(file.readAll()) + "\n\n";
+    }
+    text->setPlainText(contents);
+    layout->addWidget(text);
+    dialog.exec();
+  });
   auto startup = menuBar()->addMenu("Startup");
   resumeReceive = startup->addAction("Resume listening");
   resumeReceive->setCheckable(true);
@@ -359,6 +387,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     auto mobileMenu = new QMenu(this);
     mobileMenu->addMenu(view);
     mobileMenu->addMenu(startup);
+    mobileMenu->addMenu(help);
     auto settingsButton = new QToolButton;
     settingsButton->setText("Settings");
     settingsButton->setPopupMode(QToolButton::InstantPopup);

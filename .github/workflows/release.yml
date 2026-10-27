@@ -74,7 +74,9 @@ jobs:
         if: failure()
         with:
           name: logs-${{ matrix.platform }}
-          path: build/Testing/Temporary/*
+          path: |
+            build/Testing/Temporary/*
+            build/window-test.txt
 
   macos:
     needs: metadata
@@ -115,7 +117,9 @@ jobs:
         if: failure()
         with:
           name: logs-macos-${{ matrix.arch }}
-          path: build/Testing/Temporary/*
+          path: |
+            build/Testing/Temporary/*
+            build/window-test.txt
 
   windows:
     needs: metadata
@@ -153,7 +157,9 @@ jobs:
         if: failure()
         with:
           name: logs-windows
-          path: build/Testing/Temporary/*
+          path: |
+            build/Testing/Temporary/*
+            build/window-test.txt
 
   android:
     needs: metadata
@@ -166,6 +172,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install SDK and NDK
         run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
       - uses: jurplel/install-qt-action@v4
@@ -206,6 +214,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
       - uses: jurplel/install-qt-action@v4
         with:
@@ -258,6 +268,8 @@ jobs:
         run: |
           qt-cmake -S . -B build-ios-simulator -G Xcode -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION"
           cmake --build build-ios-simulator --config Release --parallel 3
+          codesign --force --deep --sign - build-ios-simulator/Release-iphonesimulator/DMXPulseMobileTest.app
+          codesign --force --deep --sign - build-ios-simulator/Release-iphonesimulator/DMXPulse.app
           python3 scripts/run_mobile_test.py ios build-ios-simulator/Release-iphonesimulator
           ditto -c -k --keepParent build-ios-simulator/Release-iphonesimulator/DMXPulse.app dist/DMXPulse-ios-simulator-x86_64.zip
       - name: Export signed IPA when configured

@@ -147,6 +147,6 @@ The release job downloads only package artifacts, validates the complete require
 
 ## Checks and diagnostics
 
-The workflow retains failed CTest logs. Tests use isolated ports and temporary settings; loopback traffic must be permitted. The physical-adapter regression is skipped if no non-loopback IPv4 adapter exists.
+The workflow retains failed CTest logs. Tests use isolated ports and temporary settings; loopback traffic must be permitted. The physical-adapter regression is skipped if no non-loopback IPv4 adapter exists. Exact duplicate-unicast port sharing is exercised on Unix; Windows tests isolate the receiver because its documented `SO_REUSEADDR` delivery between duplicate binds is indeterminate.
 
 See [VALIDATION.md](../VALIDATION.md) for additional local sanitizer commands and [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) for runtime distribution information. Build reproducibility depends on the pinned Qt/toolchain versions and the package distribution's repositories; this is not a bit-for-bit reproducible-build guarantee.

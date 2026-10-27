@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import zipfile
+import stat
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,7 +20,15 @@ def notices(destination):
         shutil.copytree(ROOT / "licenses", destination / "licenses", dirs_exist_ok=True)
 
 def smoke(executable):
-    run(executable, "--smoke-test", "-platform", "offscreen", timeout=30)
+    # Exercise the shipped native platform plugin, with SDK overrides removed.
+    env = os.environ.copy()
+    for name in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_QPA_PLATFORM", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"):
+        env.pop(name, None)
+    deploy = shutil.which("windeployqt") or shutil.which("macdeployqt")
+    if deploy:
+        sdk_bin = Path(deploy).parent.resolve()
+        env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if p and Path(p).resolve() != sdk_bin)
+    run(executable, "--smoke-test", timeout=30, env=env)
 
 def macos(build, output, arch):
     stage = output / "stage-macos"
@@ -39,7 +48,16 @@ def macos(build, output, arch):
                 dependencies = subprocess.check_output(["otool", "-L", str(path)], text=True)
                 for line in dependencies.splitlines()[1:]:
                     dependency = line.strip().split(" (", 1)[0]
-                    if dependency.startswith("/") and not dependency.startswith(("/System/Library/", "/usr/lib/")):
+                    if dependency.startswith(str(app / "Contents/Frameworks") + "/"):
+                        # Some SDK framework IDs are absolute *inside* the staged app.
+                        # Rewrite both LC_ID_DYLIB and references before moving the bundle.
+                        relative = Path(dependency).relative_to(app / "Contents/Frameworks")
+                        path.chmod(path.stat().st_mode | stat.S_IWUSR)
+                        if Path(dependency).resolve() == path.resolve():
+                            run("install_name_tool", "-id", "@rpath/" + relative.as_posix(), path)
+                        else:
+                            run("install_name_tool", "-change", dependency, "@executable_path/../Frameworks/" + relative.as_posix(), path)
+                    elif dependency.startswith("/") and not dependency.startswith(("/System/Library/", "/usr/lib/")):
                         raise RuntimeError(f"External runtime dependency in {path}: {dependency}")
     run("codesign", "--force", "--deep", "--sign", "-", app)
     run("codesign", "--verify", "--deep", "--strict", app)

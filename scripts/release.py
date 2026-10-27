@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import zipfile
+import tarfile
 
 REQUIRED = (
     "DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
@@ -41,8 +42,18 @@ def verify(directory):
                 names = archive.namelist()
                 if path.suffix == ".apk" and not {"AndroidManifest.xml", "classes.dex"}.issubset(names):
                     raise ValueError("APK is missing its Android runtime")
-                if path.suffix == ".zip" and not names:
-                    raise ValueError("Empty archive: " + name)
+                if path.suffix == ".zip":
+                    expected = "DMXPulse/DMXPulse.exe" if "windows" in name else "DMXPulse.app/Contents/MacOS/DMXPulse" if "macos" in name else "DMXPulse.app/DMXPulse"
+                    if expected not in names:
+                        raise ValueError("Missing application executable in " + name)
+                    if "windows" in name and "DMXPulse/platforms/qwindows.dll" not in names:
+                        raise ValueError("Missing Windows Qt platform plugin")
+                if path.suffix == ".apk" and not any(n.startswith("lib/arm64-v8a/") and "DMXPulse" in n for n in names):
+                    raise ValueError("Missing ARM64 Android application library")
+        elif name.endswith(".tar.gz"):
+            with tarfile.open(path) as archive:
+                if "DMXPulse/CMakeLists.txt" not in archive.getnames():
+                    raise ValueError("Source archive is missing the build project")
         elif path.suffix == ".deb" and path.read_bytes()[:8] != b"!<arch>\n":
             raise ValueError("Invalid Debian package: " + name)
     return [p for p in sorted(directory.iterdir()) if p.is_file() and p.name not in ("release.json", "SHA256SUMS")]

@@ -10,7 +10,7 @@
 <key>CFBundleVersion</key><string>${DMXPULSE_BUILD_NUMBER}</string>
 <key>LSRequiresIPhoneOS</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>DMXPulse receives and sends Art-Net and sACN lighting data on your local network.</string>
-<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UILaunchScreen</key><dict/>
 <key>UIRequiresFullScreen</key><false/>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
