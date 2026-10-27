@@ -28,7 +28,7 @@ Leak detection is disabled for this run; the sanitizer results do not establish 
 - A deterministic corpus of 20,000 arbitrary byte buffers, plus byte-by-byte mutations of valid packets.
 - Local UDP reception for both protocols and actual Art-Net output loopback.
 - A competing local Art-Net listener.
-- Slider edits leave received values and grayscale unchanged until a corresponding UDP packet is received; further unsent edits leave the grid unchanged again.
+- Encoder edits leave received values and grayscale unchanged until a corresponding UDP packet is received; further unsent edits leave the grid unchanged again.
 - Sequence-disabled Art-Net followed by a nonzero sequence; old packet rejection.
 - sACN large forward sequence jumps, rollover and recent duplicate rejection.
 - Selecting an already received universe without waiting for another frame.

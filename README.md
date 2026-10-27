@@ -22,11 +22,11 @@ Read a channel number and its value without opening another window. Every tile f
 
 | Monitor | Inspect | Send |
 |:---|:---|:---|
-| See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Set levels with a slider or enter an exact value. |
+| See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Shape levels with a rotary encoder, fine steps or an exact value. |
 | Choose an interface, protocol and universe. | Keep different senders separate. | Copy an entire received universe into your output. |
 | Spot live, stale and missing input immediately. | Open network diagnostics when you need more detail. | Enable transmission explicitly, at approximately 30 Hz. |
 
-**The grid tells the truth.** It only shows data received through the network. Moving a slider prepares the output; it changes the grid only when the resulting packets are actually received.
+**The grid tells the truth.** It only shows data received through the network. Turning the encoder prepares the output; it changes the grid only when the resulting packets are actually received.
 
 ## Take it where you work
 

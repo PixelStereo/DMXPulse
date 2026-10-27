@@ -162,27 +162,34 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   side->setMaximumWidth(360);
   auto sideLayout = new QVBoxLayout(side);
   sideLayout->setContentsMargins(0, 0, 0, 0);
-  sideLayout->setSpacing(12);
-  auto sourceTitle = new QLabel("Sources");
-  sourceTitle->setObjectName("section");
-  sideLayout->addWidget(sourceTitle);
+  sideLayout->setSpacing(0);
+  inspectorTabs = new QTabWidget;
+  inspectorTabs->setObjectName("inspectorTabs");
+  sideLayout->addWidget(inspectorTabs);
+  auto sourcePage = new QWidget;
+  auto sourceLayout = new QVBoxLayout(sourcePage);
+  sourceLayout->setContentsMargins(0, 10, 0, 0);
+  sourceLayout->setSpacing(10);
+  auto inspectorPage = new QWidget;
+  auto editorLayout = new QVBoxLayout(inspectorPage);
+  editorLayout->setContentsMargins(0, 10, 0, 0);
+  editorLayout->setSpacing(10);
+  inspectorTabs->addTab(sourcePage, "Sources");
+  inspectorTabs->addTab(inspectorPage, "Channel");
   sources = new QListWidget;
   sources->setObjectName("sources");
   sources->setMinimumHeight(120);
-  sideLayout->addWidget(sources, 1);
+  sourceLayout->addWidget(sources, 1);
   auto emptyHelp =
       new QLabel("Select a source to inspect its universe.\nSources are shown "
                  "separately; no merge.");
   emptyHelp->setObjectName("muted");
   emptyHelp->setWordWrap(true);
-  sideLayout->addWidget(emptyHelp);
+  sourceLayout->addWidget(emptyHelp);
   sourceHint = emptyHelp;
-  auto separator = new QFrame;
-  separator->setFrameShape(QFrame::HLine);
-  sideLayout->addWidget(separator);
   auto editorTitle = new QLabel("Channel inspector");
   editorTitle->setObjectName("section");
-  sideLayout->addWidget(editorTitle);
+  editorLayout->addWidget(editorTitle);
   channel = new QSpinBox;
   channel->setObjectName("channel");
   channel->setRange(1, 512);
@@ -191,28 +198,26 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   auto inspector = new QHBoxLayout;
   inspector->addWidget(field("Channel", channel));
   inspector->addWidget(field("Received", inputValue), 1);
-  sideLayout->addLayout(inspector);
+  editorLayout->addLayout(inspector);
   value = new QSpinBox;
   value->setObjectName("outputValue");
   value->setRange(0, 255);
-  sideLayout->addWidget(field("Output value", value));
-  slider = new QSlider(Qt::Horizontal);
-  slider->setObjectName("outputSlider");
-  slider->setAccessibleName("Output channel level");
-  slider->setRange(0, 255);
-  sideLayout->addWidget(slider);
+  editorLayout->addWidget(field("Output value", value));
+  encoder = new LevelControl;
+  editorLayout->addWidget(encoder);
   auto copy = new QPushButton("Copy input to output");
   copyInput = copy;
   copy->setToolTip("Copy all 512 received values into the output buffer");
-  sideLayout->addWidget(copy);
+  editorLayout->addWidget(copy);
   auto zero = new QPushButton("Clear output");
   zero->setToolTip("Set all 512 output channels to zero");
-  sideLayout->addWidget(zero);
+  editorLayout->addWidget(zero);
   auto editHint = new QLabel(
       "Edits change the output buffer. Enable transmission to send them.");
   editHint->setObjectName("muted");
   editHint->setWordWrap(true);
-  sideLayout->addWidget(editHint);
+  editorLayout->addWidget(editHint);
+  editorLayout->addStretch();
   split->addWidget(side);
   auto canvas = new QWidget;
   auto canvasLayout = new QVBoxLayout(canvas);
@@ -402,8 +407,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   }
   connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
           [this](Qt::ApplicationState state) {
-            if (state == Qt::ApplicationInactive ||
-                state == Qt::ApplicationSuspended)
+            if (!workspaceSaved && (state == Qt::ApplicationInactive ||
+                                    state == Qt::ApplicationSuspended))
               saveSettings();
           });
   setStyleSheet(R"(
@@ -489,7 +494,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(channel, &QSpinBox::valueChanged, this, [this] {
     updating = true;
     value->setValue(quint8(output[channel->value() - 1]));
-    slider->setValue(value->value());
+    encoder->setValue(value->value());
     updating = false;
     grid->setCurrentCell((channel->value() - 1) / columns,
                          (channel->value() - 1) % columns);
@@ -498,12 +503,19 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
           [this](const QModelIndex &current) {
             if (current.isValid())
               channel->setValue(current.row() * columns + current.column() + 1);
+            inspectorTabs->setCurrentIndex(1);
+            if (mobileTabs)
+              mobileTabs->setCurrentIndex(1);
           });
   connect(value, &QSpinBox::valueChanged, this, [this](int v) {
     if (!updating)
       edit(v);
   });
-  connect(slider, &QSlider::valueChanged, value, &QSpinBox::setValue);
+  connect(encoder, &LevelControl::valueChanged, value, &QSpinBox::setValue);
+  connect(encoder, &LevelControl::editRequested, this, [this] {
+    value->setFocus();
+    value->selectAll();
+  });
   connect(copy, &QPushButton::clicked, this, [this] {
     if (streams.contains(selected))
       output = streams[selected].frame.values;
@@ -747,7 +759,7 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
 void Window::selectStream() { render(); }
 void Window::edit(int v) {
   output[channel->value() - 1] = char(v);
-  slider->setValue(v);
+  encoder->setValue(v);
   render();
 }
 void Window::render() {
@@ -871,7 +883,7 @@ void Window::render() {
                               : "No live input; last value is retained");
   updating = true;
   value->setValue(quint8(output[channel->value() - 1]));
-  slider->setValue(value->value());
+  encoder->setValue(value->value());
   updating = false;
   metrics->setText(QString("%1  ·  Active channels: %2  ·  Received: %3  ·  "
                            "Unsupported: %4  ·  Output: %5")
@@ -969,6 +981,8 @@ void Window::restoreSettings() {
                                   : s.value("view/sources", true).toBool());
   outputToggle->setChecked(compact ? true
                                    : s.value("view/output", true).toBool());
+  inspectorTabs->setCurrentIndex(
+      qBound(0, s.value("view/inspectorTab", 0).toInt(), 1));
   if (mobileTabs)
     mobileTabs->setCurrentIndex(
         qBound(0, s.value("view/mobileTab", 0).toInt(), 2));
@@ -997,6 +1011,7 @@ void Window::saveSettings() {
   s.remove("view/gridMode");
   if (mobileTabs)
     s.setValue("view/mobileTab", mobileTabs->currentIndex());
+  s.setValue("view/inspectorTab", inspectorTabs->currentIndex());
   s.setValue("view/channel", channel->value());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());

@@ -1,4 +1,5 @@
 #pragma once
+#include "levelcontrol.h"
 #include "protocol.h"
 #include <QtNetwork>
 #include <QtWidgets>
@@ -55,7 +56,8 @@ protected:
   void closeEvent(QCloseEvent *event) override;
 
 private:
-  QSlider *slider;
+  LevelControl *encoder;
+  QTabWidget *inspectorTabs;
   QSet<int> groups;
   QNetworkInterface network;
   quint8 sequence = 0;

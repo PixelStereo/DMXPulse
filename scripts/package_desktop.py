@@ -46,7 +46,10 @@ def macos(build, output, arch):
             kind = subprocess.check_output(["file", "-b", str(path)], text=True)
             if "Mach-O" in kind:
                 dependencies = subprocess.check_output(["otool", "-L", str(path)], text=True)
-                for line in dependencies.splitlines()[1:]:
+                for line in dependencies.splitlines():
+                    # Universal binaries print one non-indented header per architecture.
+                    if not line.startswith(("\t", " ")):
+                        continue
                     dependency = line.strip().split(" (", 1)[0]
                     if dependency.startswith(str(app / "Contents/Frameworks") + "/"):
                         # Some SDK framework IDs are absolute *inside* the staged app.

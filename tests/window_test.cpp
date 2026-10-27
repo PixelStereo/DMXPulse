@@ -62,13 +62,14 @@ private slots:
     QCOMPARE(grid->item(0, 0)->background().color(), QColor(231, 231, 231));
     QCOMPARE(grid->item(0, 0)->foreground().color(), QColor(Qt::black));
     QCOMPARE(grid->item(0, 1)->background().color(), QColor(Qt::black));
+    w.findChild<QTabWidget *>("inspectorTabs")->setCurrentIndex(1);
     auto boxes = w.findChildren<QSpinBox *>();
     QSpinBox *value = nullptr;
     for (auto b : boxes)
       if (b->maximum() == 255)
         value = b;
     QVERIFY(value);
-    w.findChild<QSlider *>()->setValue(127);
+    w.findChild<LevelControl *>("outputEncoder")->setValue(127);
     QCOMPARE(value->value(), 127);
     // Editing alone must never impersonate a received DMX packet.
     QTest::qWait(150);
@@ -85,7 +86,7 @@ private slots:
     QCOMPARE(sources->count(), 2);
     send->click();
     QVERIFY(!send->isChecked());
-    w.findChild<QSlider *>()->setValue(64);
+    w.findChild<LevelControl *>("outputEncoder")->setValue(64);
     QTest::qWait(150);
     QCOMPARE(value->value(), 64);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n127"));
@@ -162,6 +163,7 @@ private slots:
                QString("192.168.1.255"));
       QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 47);
       QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 201);
+      QCOMPARE(w.findChild<QTabWidget *>("inspectorTabs")->currentIndex(), 1);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
       QVERIFY(!w.findChild<QToolButton *>("outputToggle")->isChecked());
@@ -294,7 +296,7 @@ private slots:
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QSpinBox *>("channel")->setValue(268);
-    w.findChild<QSlider *>()->setValue(76);
+    w.findChild<LevelControl *>("outputEncoder")->setValue(76);
     QTest::qWait(100);
     QCOMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QLineEdit *>("destination")->setText(address.toString());
@@ -303,6 +305,24 @@ private slots:
                               2000);
     QCOMPARE(w.findChild<QListWidget *>()->count(), 2);
     w.findChild<QPushButton *>("transmit")->setChecked(false);
+  }
+  void closePreservesSession() {
+    QTemporaryDir dir;
+    const auto file = dir.filePath("settings.ini");
+    Window w(21454, 21568, file);
+    w.show();
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+    w.close();
+    QVERIFY(QMetaObject::invokeMethod(
+        qGuiApp, "applicationStateChanged", Qt::DirectConnection,
+        Q_ARG(Qt::ApplicationState, Qt::ApplicationInactive)));
+    QSettings saved(file, QSettings::IniFormat);
+    QVERIFY(saved.value("session/listening").toBool());
   }
 };
 QTEST_MAIN(WindowTest)

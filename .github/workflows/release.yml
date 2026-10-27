@@ -77,6 +77,7 @@ jobs:
           path: |
             build/Testing/Temporary/*
             build/window-test.txt
+            build/levelcontrol-test.txt
 
   macos:
     needs: metadata
@@ -120,6 +121,7 @@ jobs:
           path: |
             build/Testing/Temporary/*
             build/window-test.txt
+            build/levelcontrol-test.txt
 
   windows:
     needs: metadata
@@ -160,6 +162,7 @@ jobs:
           path: |
             build/Testing/Temporary/*
             build/window-test.txt
+            build/levelcontrol-test.txt
 
   android:
     needs: metadata

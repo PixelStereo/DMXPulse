@@ -19,11 +19,11 @@ Each channel has its number above and its received value below. The background f
 
 Input is marked stale after 2.5 seconds without a new packet. Last values remain visible; a stale source disappears after 60 seconds. Selecting a different universe does not convert output values into input.
 
-Desktop users can click a channel or navigate with the arrow keys. On mobile, the monitor uses larger scrollable tiles; **Inspect** contains the channel editor and source list.
+Desktop users can click a channel or navigate with the arrow keys. Clicking a channel opens the **Channel** inspector. The **Sources** tab keeps sender selection separate. On mobile, the monitor uses larger scrollable tiles; **Inspect** contains both tabs.
 
 ## Prepare and send output
 
-Select a channel, then set **Output value** with the slider or number field. **Copy input to output** copies all 512 received values. **Clear output** sets the entire output buffer to zero.
+Select a channel, then set **Output value** with the rotary encoder or number field. Drag vertically to change the level, or scroll in steps of four. Hold Shift for fine control (one step with the wheel). Use **−10 / −1 / +1 / +10** for precise adjustments, or the **0 / 25% / 50% / 75% / Full** presets. Arrow keys adjust by one, Page Up/Down by ten, Home sets zero and End sets full. Double-click the encoder to focus exact numeric entry. **Copy input to output** copies all 512 received values. **Clear output** sets the entire output buffer to zero.
 
 For Art-Net, enter a unicast or broadcast IPv4 destination. For sACN, the destination is the universe's multicast group; the priority control is enabled. Enable transmission to send all 512 channels approximately 30 times per second.
 

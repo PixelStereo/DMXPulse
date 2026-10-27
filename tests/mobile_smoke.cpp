@@ -1,5 +1,6 @@
 #include "window.h"
 #include <QTemporaryDir>
+#include <cstdio>
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
   app.setOrganizationName("PixelStereo");
@@ -22,16 +23,21 @@ int main(int argc, char **argv) {
     }
     auto grid = window.findChild<QTableWidget *>("channelGrid");
     auto channel = window.findChild<QSpinBox *>("channel");
-    auto slider = window.findChild<QSlider *>("outputSlider");
-    ok &= grid && channel && slider;
+    auto encoder = window.findChild<LevelControl *>("outputEncoder");
+    ok &= grid && channel && encoder;
     if (ok) {
       channel->setValue(268);
-      slider->setValue(76);
+      encoder->setValue(76);
       ok &= grid->item(267 / grid->columnCount(), 267 % grid->columnCount())
                 ->text() == QString("268\n—");
     }
-    if(!qEnvironmentVariable("DMXPULSE_MOBILE_SCREENSHOT").isEmpty())window.grab().save(qEnvironmentVariable("DMXPULSE_MOBILE_SCREENSHOT"));
+    if (!qEnvironmentVariable("DMXPULSE_MOBILE_SCREENSHOT").isEmpty())
+      window.grab().save(qEnvironmentVariable("DMXPULSE_MOBILE_SCREENSHOT"));
     qInfo("%s", ok ? "DMXPULSE_MOBILE_TEST_PASS" : "DMXPULSE_MOBILE_TEST_FAIL");
+    std::fprintf(stderr, "%s\n",
+                 ok ? "DMXPULSE_MOBILE_TEST_PASS"
+                    : "DMXPULSE_MOBILE_TEST_FAIL");
+    std::fflush(stderr);
     app.exit(ok ? 0 : 1);
   });
   return app.exec();
