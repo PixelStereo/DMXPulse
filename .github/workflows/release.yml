@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
     tags: ['*']
+    paths-ignore: [README.md, VALIDATION.md, docs/guide.md, docs/build.md]
   pull_request:
   workflow_dispatch:
 permissions:
