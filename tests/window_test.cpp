@@ -78,6 +78,7 @@ private slots:
     send->click();
     QVERIFY(send->isChecked());
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("127"), 2000);
+    QCOMPARE(sources->count(), 2);
     send->click();
     QVERIFY(!send->isChecked());
     w.findChild<QSlider *>()->setValue(64);
@@ -254,6 +255,50 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(grid->item(0, 0)->text(), QString("1\n143"),
                               3000);
     w.findChild<QPushButton *>("listen")->setChecked(false);
+  }
+  void channel268OnSelectedAdapter() {
+    QTemporaryDir dir;
+    Window w(20454, 20568, dir.filePath("settings.ini"));
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    QHostAddress address;
+    for (int i = 0; i < iface->count(); ++i) {
+      auto n =
+          QNetworkInterface::interfaceFromIndex(iface->itemData(i).toInt());
+      if (n.flags().testFlag(QNetworkInterface::IsLoopBack))
+        continue;
+      for (auto entry : n.addressEntries())
+        if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+          iface->setCurrentIndex(i);
+          address = entry.ip();
+          break;
+        }
+      if (!address.isNull())
+        break;
+    }
+    if (address.isNull()) {
+      QTest::qSkip("No physical IPv4 adapter available", __FILE__, __LINE__);
+      return;
+    }
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+    QUdpSocket other;
+    Frame f;
+    f.universe = 0;
+    f.sequence = 1;
+    f.values = QByteArray(512, 0);
+    other.writeDatagram(Protocol::encode(f), address, 20454);
+    auto grid = w.findChild<QTableWidget *>();
+    QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n0"));
+    w.findChild<QSpinBox *>("channel")->setValue(268);
+    w.findChild<QSlider *>()->setValue(76);
+    QTest::qWait(100);
+    QCOMPARE(grid->item(8, 11)->text(), QString("268\n0"));
+    w.findChild<QLineEdit *>("destination")->setText(address.toString());
+    w.findChild<QPushButton *>("transmit")->setChecked(true);
+    QTRY_COMPARE_WITH_TIMEOUT(grid->item(8, 11)->text(), QString("268\n76"),
+                              2000);
+    QCOMPARE(w.findChild<QListWidget *>()->count(), 2);
+    w.findChild<QPushButton *>("transmit")->setChecked(false);
   }
 };
 QTEST_MAIN(WindowTest)

@@ -57,3 +57,10 @@ compile_commands.json
 
 /build*/
 *.app/
+
+__pycache__/
+/dist/
+/Qt/
+*.keystore
+*.p12
+*.mobileprovision

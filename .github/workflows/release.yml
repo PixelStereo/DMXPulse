@@ -1,0 +1,323 @@
+name: Build, test and release
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+env:
+  QT_VERSION: '6.8.3'
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      build_number: ${{ steps.meta.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test release tooling
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - id: meta
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: python3 scripts/release.py metadata
+
+  linux:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            platform: linux
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            platform: raspberry
+    runs-on: ${{ matrix.runner }}
+    container: debian:bookworm
+    timeout-minutes: 25
+    steps:
+      - name: Build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential cmake ninja-build qt6-base-dev libqt6opengl6-dev libgl1-mesa-dev dpkg-dev file python3
+      - uses: actions/checkout@v4
+      - name: Build and test natively
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDMXPULSE_VERSION="$APP_VERSION"
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure --timeout 90
+      - name: Package and install Debian package
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          (cd build && cpack -G DEB)
+          cp build/dmxpulse_*.deb "dist/DMXPulse-$PLATFORM-$ARCH.deb"
+          apt-get install -y ./dist/*.deb
+          DMXPulse --smoke-test -platform offscreen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-${{ matrix.platform }}
+          path: build/Testing/Temporary/*
+
+  macos:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+      - name: Build and test
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          APP_ARCH: ${{ matrix.arch }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$APP_ARCH" -DDMXPULSE_VERSION="$APP_VERSION"
+          cmake --build build --parallel 3
+          ctest --test-dir build --output-on-failure --timeout 90
+      - name: Bundle, verify and smoke-test packages
+        env:
+          APP_ARCH: ${{ matrix.arch }}
+        run: python3 scripts/package_desktop.py macos --arch "$APP_ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-macos-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-macos-${{ matrix.arch }}
+          path: build/Testing/Temporary/*
+
+  windows:
+    needs: metadata
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+      - name: Build and test
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDMXPULSE_VERSION="$env:APP_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build --output-on-failure --timeout 90
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Qt and MSVC runtime
+        run: python scripts/package_desktop.py windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-windows
+          path: dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-windows
+          path: build/Testing/Temporary/*
+
+  android:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK and NDK
+        run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: android
+          arch: android_arm64_v8a
+          extra: --autodesktop
+          cache: true
+      - name: Build release APK
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+        run: |
+          qt-cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125" -DDMXPULSE_VERSION="$APP_VERSION" -DDMXPULSE_BUILD_NUMBER="$APP_BUILD_NUMBER"
+          cmake --build build-android --target apk --parallel 3
+      - name: Sign and verify APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python3 scripts/package_android.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-android
+          path: dist/*
+          if-no-files-found: error
+
+  android-test:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: android
+          arch: android_x86_64
+          extra: --autodesktop
+          cache: true
+      - name: Build on-device test
+        run: |
+          qt-cmake -S . -B build-android-test -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
+          cmake --build build-android-test --target DMXPulseMobileTest_make_apk --parallel 3
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python3 scripts/run_mobile_test.py android build-android-test
+
+  ios:
+    needs: metadata
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ needs.metadata.outputs.version }}
+      APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: ios
+          arch: ios
+          cache: true
+      - name: Build device application
+        run: |
+          qt-cmake -S . -B build-ios -G Xcode -DBUILD_TESTING=OFF -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION" -DDMXPULSE_BUILD_NUMBER="$APP_BUILD_NUMBER"
+          cmake --build build-ios --config Release --parallel 3
+          mkdir -p dist
+          APP="$(find build-ios -path '*Release-iphoneos/DMXPulse.app' -type d -print -quit)"
+          test -n "$APP"
+          ditto -c -k --keepParent "$APP" dist/DMXPulse-ios-device-unsigned.zip
+      - name: Build simulator and on-device tests
+        run: |
+          qt-cmake -S . -B build-ios-simulator -G Xcode -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION"
+          cmake --build build-ios-simulator --config Release --parallel 3
+          python3 scripts/run_mobile_test.py ios build-ios-simulator/Release-iphonesimulator
+          ditto -c -k --keepParent build-ios-simulator/Release-iphonesimulator/DMXPulse.app dist/DMXPulse-ios-simulator-x86_64.zip
+      - name: Export signed IPA when configured
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD }}
+        run: |
+          if [[ -n "$IOS_CERTIFICATE_BASE64" ]]; then bash scripts/sign_ios.sh; else echo 'No Apple signing secrets: shipping explicitly unsigned device and simulator packages.'; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-ios
+          path: dist/*
+          if-no-files-found: error
+
+  sanitizers:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev libqt6opengl6-dev ninja-build
+      - name: Address and undefined-behavior checks
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          cmake -S . -B build-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug '-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined'
+          cmake --build build-sanitize --parallel 3
+          ctest --test-dir build-sanitize --output-on-failure --timeout 90
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [metadata, linux, macos, windows, android, android-test, ios, sanitizers]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+      - name: Source archive and complete-package manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          git archive --format=tar.gz --prefix=DMXPulse/ -o dist/DMXPulse-source.tar.gz HEAD
+          python3 scripts/release.py verify
+      - name: Publish only the complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "DMXPulse $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

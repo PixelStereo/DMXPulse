@@ -1,86 +1,72 @@
-# DMXPulse
+<p align="center"><img src="docs/mark.svg" width="84" alt="DMXPulse"></p>
+<h1 align="center">DMXPulse</h1>
+<p align="center"><strong>See the signal. Find the problem. Take control.</strong></p>
+<p align="center">A clear view of your Art-Net and sACN lighting network.<br>512 channels. Live values. No guesswork.</p>
+<p align="center">
+  <a href="https://github.com/PixelStereo/DMXPulse/releases">Download</a> ·
+  <a href="#your-first-signal">Quick start</a> ·
+  <a href="docs/guide.md">User guide</a> ·
+  <a href="docs/build.md">Build from source</a>
+</p>
+<p align="center">
+  <a href="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml"><img alt="Build and release" src="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml/badge.svg"></a>
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-8aa99a">
+  <img alt="Protocols Art-Net and sACN" src="https://img.shields.io/badge/Art--Net%20%C2%B7%20sACN-network%20DMX-333a37">
+</p>
 
-A native Qt 6 / C++17 application for monitoring and editing network DMX on macOS, Windows and Linux.
+![DMXPulse — live universe, grayscale channel levels and independent output controls](docs/workspace.png)
 
-![DMXPulse workspace with example input](docs/workspace.png)
+## The whole universe, at a glance
 
-## Workspace
+Read a channel number and its value without opening another window. Every tile follows the actual received level: **black at 0, white at 255**, with text that stays readable across the range.
 
-- A 512-channel grayscale grid: channel number above, received value below. Black is 0; white is 255, with automatic text contrast.
-- A source list that keeps each sender separate. No HTP/LTP merging.
-- A channel inspector with received and output values. Click a tile or use the arrow keys to select a channel.
-- A collapsible output panel with an Art-Net destination, sACN priority and transmission control.
-- Optional network diagnostics in the **View** menu.
+| Monitor | Inspect | Send |
+|:---|:---|:---|
+| See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Set levels with a slider or enter an exact value. |
+| Choose an interface, protocol and universe. | Keep different senders separate. | Copy an entire received universe into your output. |
+| Spot live, stale and missing input immediately. | Open network diagnostics when you need more detail. | Enable transmission explicitly, at approximately 30 Hz. |
 
-## Receiving
+**The grid tells the truth.** It only shows data received through the network. Moving a slider prepares the output; it changes the grid only when the resulting packets are actually received.
 
-1. Select a network interface. **Refresh** discovers currently available IPv4 adapters.
-2. Select Art-Net or sACN and a universe, then choose **Start listening**.
-3. Select a detected source to inspect its universe. Art-Net numbering is zero-based (0–32767); sACN uses 1–63999.
+## Take it where you work
 
-Sources become stale after 2.5 seconds without updates and remain listed for 60 seconds. Last received values stay visible; the input badge indicates whether they are live.
+Packages are attached to [tagged releases](https://github.com/PixelStereo/DMXPulse/releases).
 
-Art-Net receives ArtDmx on UDP 6454. sACN receives unicast on UDP 5568 and subscribes to the selected universe multicast group. The list shows observed streams, not an inventory of all devices or universes on the network. Allow local network / UDP access in the OS firewall if needed.
+| Device | Package |
+|:---|:---|
+| Mac · Apple Silicon or Intel | `.dmg` or `.zip`, with the Qt runtime included |
+| Windows · 64-bit | Portable `.zip`, with runtime dependencies |
+| Linux · Debian 12 / compatible Ubuntu desktop | `amd64.deb` |
+| Raspberry Pi · 64-bit Raspberry Pi OS Bookworm desktop | `arm64.deb` |
+| Android · 64-bit, Android 9+ | Installable `.apk`, with a touch-oriented workspace |
+| iPhone / iPad | Simulator and unsigned device builds; an installable IPA is added when Apple signing is configured |
 
-### MadMapper on the same computer
+macOS packages use an ad-hoc signature unless a distribution signing pipeline is added. iOS device installation requires appropriate Apple signing and provisioning. Android packages use a CI test key until a persistent release key is configured. See the release notes and [installation guide](docs/guide.md#installation) before installing.
 
-Configure Art-Net unicast to `127.0.0.1` in MadMapper. Select the local `127.0.0.1 [local]` adapter in DMXPulse, then start listening **after** MadMapper. DMXPulse binds Art-Net specifically to `127.0.0.1:6454` on that adapter.
+## Your first signal
 
-Two applications listening on one UDP port do not necessarily receive a copy of every unicast packet. If the sender reopens its socket, stop and restart listening. If port sharing fails, disable the sender's Art-Net input or use broadcast / sACN multicast appropriate to the interface. Packets sent exclusively to a different device are not visible to this application. **View → Network diagnostics** distinguishes absent traffic, other-interface traffic and unsupported packets.
+1. **Choose your interface.** Select the adapter connected to your lighting network.
+2. **Choose a protocol and universe.** Art-Net starts at universe **0**; sACN starts at **1**.
+3. **Start listening.** Select a detected source to inspect its channels.
 
-## Editing and transmitting
+For a same-device loopback test, choose the local `127.0.0.1` adapter and use `127.0.0.1` as the Art-Net output destination. Prepare a channel value, then enable transmission. A returned packet is required before that value appears in the grid.
 
-1. Select a channel and adjust **Output value**, from 0 to 255. The slider changes only the output buffer. The grid always shows received DMX; editing, copying or clearing output never changes its values directly. To see an edit in the grid, enable transmission and receive the resulting packets on the selected source and universe.
-2. **Copy input to output** copies the entire received universe into the output buffer. The buffer initially contains zeros and is not automatically merged with incoming values.
-3. For Art-Net, enter a unicast or broadcast IPv4 destination. For sACN, output uses `239.255.HI.LO` for the selected universe.
-4. Choose **Enable transmission** to send all 512 output values at approximately 30 Hz.
+## Pick up where you left off
 
-**Clear output** sets every output channel to zero. With transmission active, those values are sent at the next cycle. Stopping transmission leaves the final behavior to receivers; sACN sends three stream-termination packets.
+Your adapter, universe, addresses, levels, selected channel and workspace layout are saved automatically. Startup options let you resume listening and optionally transmission. On phones and tablets, switch between **Monitor**, **Inspect** and **Output** without squeezing desktop controls onto a small screen.
 
-## Saved workspace
+## Small details that matter
 
-DMXPulse saves settings automatically on close using Qt QSettings, under the `PixelStereo/DMXPulse` application namespace:
+- Incoming sources stay separate; there is no hidden HTP/LTP merge.
+- No packet means **—**, rather than a value that looks like a received zero.
+- Stale input is clearly marked while the last values remain visible.
+- Multicast reception follows the selected sACN universe.
+- Output and reception remain independent, even during local loopback.
 
-- Interface identity (stable adapter name), protocol, universe and destination address.
-- Priority, all 512 output values and selected channel.
-- Window geometry, source-panel width, panel visibility and diagnostics menu state.
-- Listening / transmitting state and startup preferences.
+Need a hand? Read the [user guide](docs/guide.md) or [report an issue](https://github.com/PixelStereo/DMXPulse/issues). Developers and release maintainers can find everything in [docs/build.md](docs/build.md).
 
-**Startup → Resume listening** is enabled by default and resumes input if it was active when the application closed. **Startup → Resume transmission** is disabled by default; enable it to also restore active transmission on reopening. Output values are restored either way. If a saved adapter is unavailable, network activity does not restart automatically; select an available adapter first.
+---
 
-## Build
-
-Requirements: CMake 3.21+, Qt 6.4+ with Widgets and Network (plus Test when tests are enabled), and a C++17 compiler. Use a Qt build matching the target platform and compiler.
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/platform
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-```
-
-- **macOS:** `build/DMXPulse.app`. For redistribution, bundle dependencies with `macdeployqt build/DMXPulse.app`, then sign / notarize as appropriate.
-- **Windows:** use an MSVC developer terminal and matching Qt MSVC build. With a multi-configuration generator, run `build/Release/DMXPulse.exe`. Bundle dependencies with `windeployqt build/Release/DMXPulse.exe`.
-- **Linux:** run `build/DMXPulse` with matching Qt runtime packages installed, or prepare a package for the target distribution.
-
-Use `-DBUILD_TESTING=OFF` to build the application without QtTest.
-
-The local application supplied alongside the source uses the Qt installation on the build machine; it is not a standalone distribution package.
-
-## Validation and scope
-
-QtTest checks packet round trips, universe limits, 512-channel data, truncated / malformed packets, local Art-Net and sACN reception, grayscale rendering data, channel editing, output loopback, a competing local listener, and settings restoration including automatic input restart. Network tests use isolated ports and temporary settings files.
-
-Compilation and tests have been run on macOS Apple Silicon with Qt 6.12. Windows/Linux compilation and physical lighting-network validation remain to be done. Android and iOS are possible Qt targets, but a touch layout, mobile networking permissions, packaging and device tests are not implemented yet.
-
-Not implemented: ArtPoll device discovery, RDM, HTP/LTP merging, sACN synchronization, universe discovery and IPv6. Synchronized sACN, preview packets and nonzero DMX start codes are ignored. Duplicate / old sequences are filtered.
-
-See [VALIDATION.md](VALIDATION.md) for the review, regression coverage and sanitizer commands.
-
-## Protocol references
+Made by **PixelStereo** · [MIT license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 Art-Net™ Designed by and Copyright Artistic Licence.
-
-- [Art-Net developer documentation](https://artisticlicence.com/pages/data-and-dmx-support-documents)
-- [ANSI E1.31-2018](https://tsp.esta.org/tsp/documents/docs/E1-31-2018.pdf)
-
-The receiver also accepts this application’s own sACN data when it is delivered back through the network. A sACN sender has its own source identity: select that source to inspect its returned packets. No UI values are injected into the receive grid.

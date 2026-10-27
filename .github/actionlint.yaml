@@ -1,0 +1,3 @@
+# Hosted runner added after the pinned actionlint version; verified against GitHub's runner reference.
+self-hosted-runner:
+  labels: [macos-15-intel]

@@ -19,7 +19,7 @@ private:
     quint64 packets = 0;
   };
   quint16 artPort, sacnPort;
-  QUdpSocket art, sacn, tx;
+  QUdpSocket art, artUnicast, sacn, tx;
   QTimer refresh, sendTimer;
   QElapsedTimer clock;
   QMap<QString, Stream> streams;
@@ -28,7 +28,8 @@ private:
   QLabel *sourceHint;
   QPushButton *copyInput;
   quint64 sent = 0, reordered = 0;
-  bool artDrainScheduled = false, sacnDrainScheduled = false;
+  QSet<QUdpSocket *> pendingDrains;
+  bool awaitingOutputReturn = false;
   bool workspaceSaved = false;
   QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
   QComboBox *iface, *protocol;
@@ -39,6 +40,9 @@ private:
   QTableWidget *grid;
   QLabel *status, *metrics, *signal, *universeTitle, *inputValue;
   QSplitter *split;
+  int columns = 32;
+  bool compact = false;
+  QTabWidget *mobileTabs = nullptr;
   QWidget *side, *outputPanel;
   QToolButton *outputToggle;
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;

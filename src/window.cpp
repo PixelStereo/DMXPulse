@@ -1,6 +1,7 @@
 #include "window.h"
+#include "platform.h"
 namespace {
-constexpr int columns = 32;
+
 class ChannelDelegate : public QStyledItemDelegate {
 public:
   using QStyledItemDelegate::QStyledItemDelegate;
@@ -44,9 +45,13 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
           : std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
   paintedInput.fill(-2);
   paintedOutput.fill(-2);
+  compact = QGuiApplication::platformName() == "android" ||
+            QGuiApplication::platformName() == "ios" ||
+            qEnvironmentVariableIntValue("DMXPULSE_COMPACT_UI") == 1;
+  columns = compact ? 8 : 32;
   clock.start();
   setWindowTitle("DMXPulse");
-  resize(1440, 900);
+  resize(compact?390:1440,compact?844:900);
   auto root = new QWidget;
   setCentralWidget(root);
   auto layout = new QVBoxLayout(root);
@@ -59,6 +64,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   auto subtitle = new QLabel("Network DMX monitor");
   subtitle->setObjectName("muted");
   header->addWidget(subtitle);
+  subtitle->setVisible(!compact);
   header->addStretch();
   signal = new QLabel("No signal");
   signal->setObjectName("signal");
@@ -76,7 +82,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     v->addWidget(control);
     return box;
   };
-  auto toolbar = new QHBoxLayout;
+  auto toolbar = new QGridLayout;
   toolbar->setSpacing(12);
   iface = new QComboBox;
   iface->setObjectName("networkInterface");
@@ -130,11 +136,23 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   listen->setMinimumWidth(140);
   listen->setShortcut(QKeySequence("Ctrl+L"));
   listen->setToolTip("Start or stop receiving DMX (Ctrl+L)");
-  toolbar->addWidget(field("Network interface", iface), 1);
-  toolbar->addWidget(field("Adapters", rescan));
-  toolbar->addWidget(field("Protocol", protocol));
-  toolbar->addWidget(field("Universe", universe));
-  toolbar->addWidget(field("Input", listen));
+  if (compact) {
+    iface->setMinimumWidth(0);
+    listen->setMinimumWidth(0);
+    universe->setMinimumWidth(0);
+    toolbar->addWidget(field("Network interface", iface), 0, 0, 1, 3);
+    toolbar->addWidget(field("Protocol", protocol), 1, 0);
+    toolbar->addWidget(field("Universe", universe), 1, 1);
+    toolbar->addWidget(field("Adapters", rescan), 1, 2);
+    toolbar->addWidget(listen, 2, 0, 1, 3);
+  } else {
+    toolbar->addWidget(field("Network interface", iface), 0, 0);
+    toolbar->setColumnStretch(0, 1);
+    toolbar->addWidget(field("Adapters", rescan), 0, 1);
+    toolbar->addWidget(field("Protocol", protocol), 0, 2);
+    toolbar->addWidget(field("Universe", universe), 0, 3);
+    toolbar->addWidget(field("Input", listen), 0, 4);
+  }
   layout->addLayout(toolbar);
   split = new QSplitter;
   split->setObjectName("workspace");
@@ -225,7 +243,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   legendLayout->addWidget(white);
   canvasHeader->addWidget(legend);
   canvasLayout->addLayout(canvasHeader);
-  grid = new QTableWidget(16, columns);
+  grid = new QTableWidget(512 / columns, columns);
   grid->setObjectName("channelGrid");
   grid->horizontalHeader()->hide();
   grid->verticalHeader()->hide();
@@ -234,6 +252,13 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   grid->setItemDelegate(new ChannelDelegate(grid));
   grid->horizontalHeader()->setMinimumSectionSize(28);
   grid->verticalHeader()->setMinimumSectionSize(28);
+  if (compact) {
+    legend->hide();
+    grid->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    grid->verticalHeader()->setDefaultSectionSize(48);
+    grid->horizontalHeader()->setMinimumSectionSize(32);
+    QScroller::grabGesture(grid->viewport(), QScroller::TouchGesture);
+  }
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
   grid->setSelectionMode(QAbstractItemView::SingleSelection);
   grid->setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -258,7 +283,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   layout->addWidget(outputToggle);
   outputPanel = new QFrame;
   outputPanel->setObjectName("outputPanel");
-  auto outLayout = new QHBoxLayout(outputPanel);
+  auto outLayout = new QBoxLayout(
+      compact ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight, outputPanel);
   outLayout->setContentsMargins(14, 12, 14, 12);
   outLayout->setSpacing(12);
   destination = new QLineEdit;
@@ -313,6 +339,44 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   resumeSend->setCheckable(true);
   resumeSend->setToolTip(
       "Restore the last transmission state, including output values");
+  if (compact) {
+    mobileTabs = new QTabWidget;
+    mobileTabs->setObjectName("mobileTabs");
+    side->setMinimumWidth(0);
+    side->setMaximumWidth(QWIDGETSIZE_MAX);
+    auto inspectScroll = new QScrollArea;
+    inspectScroll->setWidgetResizable(true);
+    inspectScroll->setWidget(side);
+    auto outputScroll = new QScrollArea;
+    outputScroll->setWidgetResizable(true);
+    outputScroll->setWidget(outputPanel);
+    mobileTabs->addTab(canvas, "Monitor");
+    mobileTabs->addTab(inspectScroll, "Inspect");
+    mobileTabs->addTab(outputScroll, "Output");
+    delete layout->replaceWidget(split, mobileTabs);
+    split->hide();
+    outputToggle->hide();
+    auto mobileMenu = new QMenu(this);
+    mobileMenu->addMenu(view);
+    mobileMenu->addMenu(startup);
+    auto settingsButton = new QToolButton;
+    settingsButton->setText("Settings");
+    settingsButton->setPopupMode(QToolButton::InstantPopup);
+    settingsButton->setMenu(mobileMenu);
+    header->addWidget(settingsButton);
+    menuBar()->hide();
+    showSources->setEnabled(false);
+    metrics->setWordWrap(true);
+    status->setWordWrap(true);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(8);
+  }
+  connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
+          [this](Qt::ApplicationState state) {
+            if (state == Qt::ApplicationInactive ||
+                state == Qt::ApplicationSuspended)
+              saveSettings();
+          });
   setStyleSheet(R"(
     QWidget { background:#171819; color:#e5e5e5; font-size:12px; }
     QLabel, QWidget#field { background:transparent; }
@@ -339,8 +403,13 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QSlider::groove:horizontal { height:4px; background:#393d40; border-radius:2px; }
     QSlider::handle:horizontal { width:12px; background:#c1d4cb; margin:-4px 0; border-radius:6px; }
     QLabel#diagnostics { background:#202223; padding:10px; color:#a9afb2; border-radius:5px; }
+    QTabWidget::pane { border:0; } QTabBar::tab { background:#25282a; padding:10px 18px; } QTabBar::tab:selected { background:#3a4a42; }
     QMenuBar { background:#171819; } QMenu { background:#242628; } QMenu::item:selected { background:#3c4842; }
   )");
+  if (compact)
+    setStyleSheet(styleSheet() +
+                  "QComboBox,QSpinBox,QLineEdit,QPushButton{min-height:26px;"
+                  "font-size:14px} QLabel{font-size:12px}");
   connect(listen, &QPushButton::toggled, this, [this, rescan](bool) {
     rescan->setEnabled(!listen->isChecked() && !send->isChecked());
   });
@@ -354,6 +423,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
       stop();
   });
   connect(&art, &QUdpSocket::readyRead, this, [this] { receive(&art, false); });
+  connect(&artUnicast, &QUdpSocket::readyRead, this,
+          [this] { receive(&artUnicast, false); });
   connect(&sacn, &QUdpSocket::readyRead, this,
           [this] { receive(&sacn, true); });
   connect(protocol, &QComboBox::currentIndexChanged, this, [this] {
@@ -420,6 +491,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
           transmit(true);
       sendTimer.stop();
       tx.close();
+      awaitingOutputReturn = false;
       protocol->setEnabled(true);
       universe->setEnabled(true);
       iface->setEnabled(!listen->isChecked());
@@ -451,6 +523,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     destination->setEnabled(false);
     priority->setEnabled(false);
     sent = 0;
+    awaitingOutputReturn = true;
     sendTimer.setTimerType(Qt::PreciseTimer);
     sendTimer.start(33);
     updateControls();
@@ -500,6 +573,16 @@ void Window::start() {
     status->setText("Could not start listening: " + error);
     return;
   }
+  if (!network.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+    for (const auto &entry : network.addressEntries())
+      if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+        if (!artUnicast.bind(entry.ip(), artPort, flags)) {
+          status->setText("Local unicast listener unavailable: " +
+                          artUnicast.errorString());
+        }
+        break;
+      }
+  }
   art.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
                       1024 * 1024);
   sacn.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
@@ -514,10 +597,15 @@ void Window::start() {
                       .arg(sacnPort));
   if (protocol->currentIndex())
     join(universe->value());
+  if (!setMulticastReceptionEnabled(true))
+    status->setText("Could not acquire Wi-Fi multicast reception. Unicast is "
+                    "still available.");
   listen->setText("Stop listening");
 }
 void Window::stop() {
+  setMulticastReceptionEnabled(false);
   art.close();
+  artUnicast.close();
   sacn.close();
   groups.clear();
   iface->setEnabled(!send->isChecked());
@@ -568,11 +656,12 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
       invalid++;
       continue;
     }
-    QString key = QString("%1/%2/%3/%4")
+    QString key = QString("%1/%2/%3/%4/%5")
                       .arg(isSacn ? "sACN" : "Art-Net")
                       .arg(f.universe)
                       .arg(isSacn ? QString() : d.senderAddress().toString(),
-                           QString::fromLatin1(f.cid.toHex()));
+                           QString::fromLatin1(f.cid.toHex()))
+                      .arg(isSacn ? 0 : d.senderPort());
     if (f.terminated) {
       streams.remove(key);
       continue;
@@ -596,7 +685,20 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
       }
     }
     s.frame = f;
-    s.ip = d.senderAddress().toString();
+    s.ip = d.senderAddress().toString() +
+           (isSacn ? QString() : QString(":%1").arg(d.senderPort()));
+    bool own = isSacn ? f.cid == cid
+                      : d.senderPort() == tx.localPort() &&
+                            tx.state() == QAbstractSocket::BoundState &&
+                            d.senderAddress() == tx.localAddress();
+    if (own)
+      s.frame.name = "DMXPulse output";
+    if (own && awaitingOutputReturn && send->isChecked() &&
+        f.universe == universe->value() &&
+        f.sacn == bool(protocol->currentIndex())) {
+      selected = key;
+      awaitingOutputReturn = false;
+    }
     s.seen = clock.elapsed();
     s.packets++;
     received++;
@@ -605,11 +707,10 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
       selected = key;
   }
   // Drain in bounded batches, yielding to UI and timers between batches.
-  bool &scheduled = isSacn ? sacnDrainScheduled : artDrainScheduled;
-  if (socket->hasPendingDatagrams() && !scheduled) {
-    scheduled = true;
+  if (socket->hasPendingDatagrams() && !pendingDrains.contains(socket)) {
+    pendingDrains.insert(socket);
     QTimer::singleShot(0, this, [this, socket, isSacn] {
-      (isSacn ? sacnDrainScheduled : artDrainScheduled) = false;
+      pendingDrains.remove(socket);
       receive(socket, isSacn);
     });
   }
@@ -810,7 +911,8 @@ void Window::updateControls() {
 }
 void Window::restoreSettings() {
   auto &s = *settings;
-  restoreGeometry(s.value("window/geometry").toByteArray());
+  if (!compact)
+    restoreGeometry(s.value("window/geometry").toByteArray());
   split->restoreState(s.value("window/splitter").toByteArray());
   auto savedCid = s.value("network/cid").toByteArray();
   if (savedCid.size() == 16)
@@ -834,8 +936,13 @@ void Window::restoreSettings() {
   grid->setCurrentCell((channel->value() - 1) / columns,
                        (channel->value() - 1) % columns);
   showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
-  showSources->setChecked(s.value("view/sources", true).toBool());
-  outputToggle->setChecked(s.value("view/output", true).toBool());
+  showSources->setChecked(compact ? true
+                                  : s.value("view/sources", true).toBool());
+  outputToggle->setChecked(compact ? true
+                                   : s.value("view/output", true).toBool());
+  if (mobileTabs)
+    mobileTabs->setCurrentIndex(
+        qBound(0, s.value("view/mobileTab", 0).toInt(), 2));
   resumeReceive->setChecked(s.value("startup/receive", true).toBool());
   resumeSend->setChecked(s.value("startup/transmit", false).toBool());
   if (index >= 0) {
@@ -859,6 +966,8 @@ void Window::saveSettings() {
   s.setValue("output/priority", priority->value());
   s.setValue("output/values", output);
   s.remove("view/gridMode");
+  if (mobileTabs)
+    s.setValue("view/mobileTab", mobileTabs->currentIndex());
   s.setValue("view/channel", channel->value());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());
