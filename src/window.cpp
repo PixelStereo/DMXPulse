@@ -320,16 +320,10 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   send = new QPushButton("Enable transmission");
   send->setObjectName("transmit");
   send->setCheckable(true);
-  auto destinationField = field("Art-Net destination", destination);
+  destinationField = field("Art-Net destination", destination);
   transportLayout->addWidget(destinationField);
-  auto priorityField = field("sACN priority", priority);
+  priorityField = field("sACN priority", priority);
   transportLayout->addWidget(priorityField);
-  priorityField->hide();
-  connect(protocol, &QComboBox::currentIndexChanged, this,
-          [destinationField, priorityField](int index) {
-            destinationField->setVisible(index == 0);
-            priorityField->setVisible(index == 1);
-          });
   auto rate = new QLabel("512 channels · 30 Hz");
   rate->setObjectName("muted");
   transportLayout->addWidget(rate);
@@ -520,6 +514,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(&sacn, &QUdpSocket::readyRead, this,
           [this] { receive(&sacn, true); });
   connect(protocol, &QComboBox::currentIndexChanged, this, [this] {
+    autoSelectPending = false;
     endSend();
     universe->setRange(protocol->currentIndex() ? 1 : 0,
                        protocol->currentIndex() ? 63999 : 32767);
@@ -529,17 +524,34 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     render();
   });
   connect(universe, &QSpinBox::valueChanged, this, [this] {
+    autoSelectPending = false;
     endSend();
     if (listen->isChecked())
       join(protocol->currentIndex() ? universe->value() : 0);
     render();
   });
-  connect(sources, &QListWidget::itemClicked, this, [this](QListWidgetItem *i) {
-    auto parts = i->data(Qt::UserRole).toString().split('/');
-    protocol->setCurrentIndex(parts[0].toInt());
-    universe->setValue(parts[1].toInt());
-    render();
-  });
+  connect(sources, &QListWidget::currentItemChanged, this,
+          [this](QListWidgetItem *item) {
+            if (!item)
+              return;
+            const auto parts = item->data(Qt::UserRole).toString().split('/');
+            if (parts.size() != 2)
+              return;
+            selectUniverse(parts[0].toInt(), parts[1].toInt());
+            render();
+          });
+  connect(sources, &QListWidget::itemClicked, this,
+          [this](QListWidgetItem *item) {
+            autoSelectPending = false;
+            if (!item ||
+                item->data(Qt::UserRole).toString() == currentUniverseKey())
+              return;
+            const auto parts = item->data(Qt::UserRole).toString().split('/');
+            if (parts.size() != 2)
+              return;
+            selectUniverse(parts[0].toInt(), parts[1].toInt());
+            render();
+          });
   connect(grid, &QTableWidget::cellClicked, this,
           [this](int r, int c) { channel->setValue(r * columns + c + 1); });
   connect(channel, &QSpinBox::valueChanged, this, [this] {
@@ -617,6 +629,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     destination->setEnabled(false);
     priority->setEnabled(false);
     sent = 0;
+    autoSelectPending = false;
     log("TX · Transmission enabled");
     sendTimer.setTimerType(Qt::PreciseTimer);
     sendTimer.start(33);
@@ -683,6 +696,7 @@ void Window::start() {
                        1024 * 1024);
   datagrams = received = invalid = otherInterface = reordered = 0;
   streams.clear();
+  autoSelectPending = !send->isChecked();
   heldInput.clear();
   heldExternal.clear();
   iface->setEnabled(false);
@@ -855,6 +869,20 @@ void Window::log(const QString &message) {
                     "yyyy-MM-dd HH:mm:ss.zzz") +
                     " · " + line;
 }
+void Window::selectUniverse(int protocolIndex, int address) {
+  const bool changed =
+      protocol->currentIndex() != protocolIndex || universe->value() != address;
+  if (changed)
+    endSend();
+  autoSelectPending = false;
+  const QSignalBlocker protocolBlocker(protocol), universeBlocker(universe);
+  protocol->setCurrentIndex(protocolIndex);
+  universe->setRange(protocolIndex ? 1 : 0, protocolIndex ? 63999 : 32767);
+  universe->setValue(address);
+  if (changed && listen->isChecked())
+    join(protocolIndex ? universe->value() : 0);
+  updateControls();
+}
 QString Window::currentUniverseKey() const {
   return QString("%1/%2").arg(protocol->currentIndex()).arg(universe->value());
 }
@@ -915,7 +943,6 @@ void Window::prepareOutput() {
       output[ch] = base[ch];
 }
 void Window::render() {
-  syncMergeMode();
   auto now = clock.elapsed();
   for (auto i = streams.begin(); i != streams.end();)
     if (now - i->seen > 60000)
@@ -928,6 +955,29 @@ void Window::render() {
                   .arg(int(stream.frame.sacn))
                   .arg(stream.frame.universe)]
         << &stream;
+  if (autoSelectPending && listen->isChecked() && !send->isChecked()) {
+    const Stream *only = nullptr;
+    int liveUniverses = 0;
+    for (const auto &group : universes) {
+      for (auto stream : group) {
+        if (now - stream->seen < 2500) {
+          only = stream;
+          ++liveUniverses;
+          break;
+        }
+      }
+      if (liveUniverses > 1)
+        break;
+    }
+    if (liveUniverses == 1) {
+      selectUniverse(int(only->frame.sacn), only->frame.universe);
+      log(QString("VIEW · Automatically selected %1 · U%2")
+              .arg(protocol->currentText())
+              .arg(universe->value()));
+    }
+  }
+  syncMergeMode();
+  const QSignalBlocker sourceBlocker(sources);
   QHash<QString, QListWidgetItem *> items;
   for (int row = sources->count() - 1; row >= 0; --row) {
     auto item = sources->item(row);
@@ -967,6 +1017,8 @@ void Window::render() {
       item->setText(text);
     item->setToolTip(origins.join('\n'));
     item->setSelected(i.key() == current);
+    if (i.key() == current)
+      sources->setCurrentItem(item);
   }
   for (auto i = heldInput.begin(); i != heldInput.end();)
     if (!universes.contains(i.key()))
@@ -1122,6 +1174,8 @@ void Window::transmit(bool terminated) {
 }
 
 void Window::updateControls() {
+  destinationField->setVisible(protocol->currentIndex() == 0);
+  priorityField->setVisible(protocol->currentIndex() == 1);
   bool transmitting = send->isChecked();
   send->setText(transmitting ? "Stop transmission" : "Enable transmission");
   priority->setEnabled(protocol->currentIndex() == 1 && !transmitting);

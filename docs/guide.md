@@ -13,7 +13,7 @@ Get the package matching your device from [Releases](https://github.com/PixelSte
 
 ## Read a universe
 
-Choose the correct interface, Art-Net or sACN, and a universe. Click **Start listening**, then select a detected universe. Art-Net universe addresses are zero-based: 0–32767. sACN supports 1–63999.
+Choose the correct interface, Art-Net or sACN, and a universe. Click **Start listening**, then select a detected universe. When exactly one live universe is detected after listening starts, it is selected and displayed automatically, including its protocol. Later arrivals do not replace that view. Choosing a universe manually or enabling transmission keeps your selection stable. Art-Net universe addresses are zero-based: 0–32767. sACN supports 1–63999.
 
 Each channel has its number above and its received value below. The background follows the value from black (0) to white (255). **—** means no data has been received for the selected protocol and universe.
 

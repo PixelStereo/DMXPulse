@@ -48,6 +48,8 @@ private:
   quint64 sent = 0, reordered = 0;
   QSet<QUdpSocket *> pendingDrains;
   bool workspaceSaved = false;
+  bool autoSelectPending = true;
+  void selectUniverse(int protocolIndex, int address);
   QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
   QComboBox *iface, *protocol;
   QSpinBox *universe, *channel, *value, *priority;
@@ -59,7 +61,7 @@ private:
   QSplitter *split;
   int columns = 32;
   bool compact = false;
-  QWidget *side, *outputPanel;
+  QWidget *side, *outputPanel, *destinationField, *priorityField;
   QAction *outputToggle;
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;
   std::unique_ptr<QSettings> settings;

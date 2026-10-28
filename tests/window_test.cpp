@@ -314,6 +314,124 @@ private slots:
     QCOMPARE(w.findChild<QListWidget *>()->count(), 1);
     w.findChild<QPushButton *>("transmit")->setChecked(false);
   }
+  void onlyIncomingUniverseIsSelected_data() {
+    QTest::addColumn<bool>("sacn");
+    QTest::newRow("Art-Net") << false;
+    QTest::newRow("sACN") << true;
+  }
+  void onlyIncomingUniverseIsSelected() {
+    QFETCH(bool, sacn);
+    QTemporaryDir dir;
+    Window w(25454, 25568, dir.filePath("settings.ini"));
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    auto protocol = w.findChild<QComboBox *>("protocol");
+    auto universe = w.findChild<QSpinBox *>("universe");
+    universe->setValue(511); // Previously saved universe does not match input.
+    auto listen = w.findChild<QPushButton *>("listen");
+    listen->setChecked(true);
+    QVERIFY(listen->isChecked());
+    QUdpSocket source;
+    Frame f;
+    f.sacn = sacn;
+    f.universe = 37;
+    f.cid = QUuid::createUuid().toRfc4122();
+    f.values = QByteArray(512, 0);
+    f.values[0] = 101;
+    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+                         sacn ? 25568 : 25454);
+    auto grid = w.findChild<QTableWidget *>();
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n101"));
+    QCOMPARE(protocol->currentIndex(), int(sacn));
+    QCOMPARE(universe->value(), 37);
+    auto panel = w.findChild<QWidget *>("outputPanel");
+    QCOMPARE(w.findChild<QLineEdit *>("destination")->isVisibleTo(panel),
+             !sacn);
+    QCOMPARE(w.findChild<QSpinBox *>("priority")->isVisibleTo(panel), sacn);
+    auto list = w.findChild<QListWidget *>("sources");
+    QVERIFY(list->currentItem());
+    QCOMPARE(list->currentItem()->data(Qt::UserRole).toString(),
+             QString("%1/37").arg(int(sacn)));
+    QVERIFY(list->currentItem()->isSelected());
+    // Further arrivals must not keep moving the user's view.
+    f.universe = 38;
+    f.values[0] = 77;
+    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+                         sacn ? 25568 : 25454);
+    QTRY_COMPARE(list->count(), 2);
+    QCOMPARE(universe->value(), 37);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n101"));
+    // Restarting reception allows a new sole universe to be selected.
+    listen->setChecked(false);
+    listen->setChecked(true);
+    f.universe = 39;
+    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+                         sacn ? 25568 : 25454);
+    QTRY_COMPARE(universe->value(), 39);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n77"));
+  }
+  void universeListSelectsIndependentMergeModes() {
+    QTemporaryDir dir;
+    Window w(27454, 27568, dir.filePath("settings.ini"));
+    w.show();
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QUdpSocket a, b;
+    Frame f;
+    f.values = QByteArray(512, 0);
+    for (int u : {1, 2}) {
+      f.universe = u;
+      f.values[0] = char(200);
+      a.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 27454);
+      f.values[0] = 40;
+      b.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 27454);
+    }
+    auto list = w.findChild<QListWidget *>("sources");
+    QTRY_COMPARE(list->count(), 2);
+    auto universe = w.findChild<QSpinBox *>("universe");
+    auto mode = w.findChild<QComboBox *>("mergeMode");
+    auto grid = w.findChild<QTableWidget *>();
+    auto clickUniverse = [&](int u) {
+      for (int row = 0; row < list->count(); ++row) {
+        auto item = list->item(row);
+        if (item->data(Qt::UserRole).toString() == QString("0/%1").arg(u)) {
+          QTest::mouseClick(list->viewport(), Qt::LeftButton, {},
+                            list->visualItemRect(item).center());
+          return;
+        }
+      }
+      QFAIL("Universe not in list");
+    };
+    clickUniverse(1);
+    QCOMPARE(universe->value(), 1);
+    mode->setFocus();
+    QTest::keyClick(mode, Qt::Key_End); // Select LTP using the real control.
+    QCOMPARE(mode->currentIndex(), 1);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n40"));
+    clickUniverse(2);
+    QCOMPARE(universe->value(), 2);
+    QCOMPARE(mode->currentIndex(), 0);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+    // Navigating the list with arrows must switch the actual monitored
+    // universe.
+    list->setFocus();
+    QTest::keyClick(list, Qt::Key_Up);
+    QCOMPARE(universe->value(), 1);
+    QCOMPARE(mode->currentIndex(), 1);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n40"));
+    QTest::keyClick(list, Qt::Key_Down);
+    QCOMPARE(universe->value(), 2);
+    QCOMPARE(mode->currentIndex(), 0);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+    clickUniverse(1);
+    QVERIFY(list->item(0)->text().contains("LTP"));
+    QVERIFY(list->item(1)->text().contains("HTP"));
+  }
   void mergeModePerUniverse() {
     QTemporaryDir dir;
     const auto file = dir.filePath("settings.ini");

@@ -6,7 +6,7 @@ Environment: macOS Apple Silicon, AppleClang 21, Qt 6.12.0, C++17.
 
 - Release: `-Wall -Wextra -Wpedantic`, no compiler warnings reported.
 - Debug: AddressSanitizer and UndefinedBehaviorSanitizer.
-- Both builds pass the `protocol`, `window` and `levelcontrol` QtTest suites. The window suite has 11 passing cases including setup/cleanup; the encoder suite has 6. Seven Python release/mobile-tool tests also pass.
+- Both builds pass the `protocol`, `window` and `levelcontrol` QtTest suites. The window suite has 14 passing cases including setup/cleanup; the encoder suite has 6. Seven Python release/mobile-tool tests also pass.
 
 Sanitizer invocation:
 
@@ -30,6 +30,8 @@ Leak detection is disabled for this run; the sanitizer results do not establish 
 - A competing local Art-Net listener.
 - Encoder edits leave received values and grayscale unchanged until a corresponding UDP packet is received; further unsent edits leave the grid unchanged again.
 - One list entry per protocol/universe, including when external and returned output streams coexist.
+- Automatic selection of the sole live universe for both Art-Net and sACN, correct output controls after protocol changes, stable selection when another universe arrives, and re-arming on listening restart.
+- Actual mouse/keyboard navigation between Art-Net universe 1 (LTP) and universe 2 (HTP) preserves their distinct merged values and settings.
 - HTP maximum levels, per-channel LTP ownership, unchanged keepalives, sACN priority selection and termination fallback.
 - External input follows through to unedited output channels; edited overrides survive new input and are released explicitly. Returned output is excluded from the baseline.
 - Timestamped log entries include each sender endpoint; memory is bounded to 2,000 journal entries.

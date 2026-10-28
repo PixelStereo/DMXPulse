@@ -47,7 +47,7 @@ macOS packages use an ad-hoc signature unless a distribution signing pipeline is
 
 1. **Choose your interface.** Select the adapter connected to your lighting network.
 2. **Choose a protocol and universe.** Art-Net starts at universe **0**; sACN starts at **1**.
-3. **Start listening.** Select a detected universe to inspect its channels.
+3. **Start listening.** A sole incoming universe is selected automatically; otherwise, select the universe to inspect.
 
 For a same-device loopback test, choose the local `127.0.0.1` adapter and use `127.0.0.1` as the Art-Net output destination. Prepare a channel value, then enable transmission. A returned packet is required before that value appears in the grid.
 
