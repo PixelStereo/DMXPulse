@@ -314,6 +314,104 @@ private slots:
     QCOMPARE(w.findChild<QListWidget *>()->count(), 1);
     w.findChild<QPushButton *>("transmit")->setChecked(false);
   }
+  void mergeModePerUniverse() {
+    QTemporaryDir dir;
+    const auto file = dir.filePath("settings.ini");
+    {
+      QSettings legacy(file, QSettings::IniFormat);
+      legacy.setValue("view/mergeMode", 1);
+      legacy.setValue("network/protocol", 0);
+      legacy.setValue("network/universe", 0);
+    }
+    {
+      Window w(24454, 24568, file);
+      auto mode = w.findChild<QComboBox *>("mergeMode");
+      auto protocol = w.findChild<QComboBox *>("protocol");
+      auto universe = w.findChild<QSpinBox *>("universe");
+      auto grid = w.findChild<QTableWidget *>();
+      // Migrate the old global mode only onto the last selected universe.
+      QCOMPARE(mode->currentIndex(), 1);
+      universe->setValue(1);
+      QCOMPARE(mode->currentIndex(), 0);
+      mode->setCurrentIndex(1);
+      universe->setValue(0);
+      QCOMPARE(mode->currentIndex(), 1);
+      mode->setCurrentIndex(0);
+      auto iface = w.findChild<QComboBox *>("networkInterface");
+      for (int i = 0; i < iface->count(); ++i)
+        if (iface->itemText(i).contains("[local]"))
+          iface->setCurrentIndex(i);
+      auto listen = w.findChild<QPushButton *>("listen");
+      listen->setChecked(true);
+      QVERIFY(listen->isChecked());
+      QUdpSocket a, b;
+      Frame x, y;
+      x.values = QByteArray(512, 0);
+      x.values[0] = char(200);
+      y = x;
+      y.values[0] = 40;
+      for (int u : {0, 1}) {
+        universe->setValue(u);
+        QCOMPARE(mode->currentIndex(), u);
+        x.universe = y.universe = u;
+        a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 24454);
+        QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+        b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 24454);
+        // Wait for B to be processed, even when HTP keeps the same level.
+        QTRY_VERIFY(
+            w.findChild<QPlainTextEdit *>("networkLog")
+                ->toPlainText()
+                .contains(
+                    QString("U%1 · 127.0.0.1:%2").arg(u).arg(b.localPort())));
+        QCOMPARE(grid->item(0, 0)->text(),
+                 u == 0 ? QString("1\n200") : QString("1\n40"));
+      }
+      universe->setValue(0);
+      QCOMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+      universe->setValue(1);
+      QCOMPARE(grid->item(0, 0)->text(), QString("1\n40"));
+      protocol->setCurrentIndex(1);
+      QCOMPARE(mode->currentIndex(),
+               0); // sACN U1 is independent of Art-Net U1.
+      x.sacn = y.sacn = true;
+      x.cid = QUuid::createUuid().toRfc4122();
+      y.cid = QUuid::createUuid().toRfc4122();
+      a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 24568);
+      QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+      b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 24568);
+      QTRY_VERIFY(w.findChild<QPlainTextEdit *>("networkLog")
+                      ->toPlainText()
+                      .contains(QString::fromLatin1(y.cid.toHex())));
+      QCOMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+      universe->setValue(2);
+      mode->setCurrentIndex(1);
+      universe->setValue(1);
+      QCOMPARE(mode->currentIndex(), 0);
+      listen->setChecked(false);
+    }
+    {
+      Window restored(24454, 24568, file);
+      auto mode = restored.findChild<QComboBox *>("mergeMode");
+      auto protocol = restored.findChild<QComboBox *>("protocol");
+      auto universe = restored.findChild<QSpinBox *>("universe");
+      QCOMPARE(protocol->currentIndex(), 1);
+      QCOMPARE(universe->value(), 1);
+      QCOMPARE(mode->currentIndex(), 0);
+      universe->setValue(2);
+      QCOMPARE(mode->currentIndex(), 1);
+      protocol->setCurrentIndex(0);
+      QCOMPARE(mode->currentIndex(), 0); // New Art-Net U2 defaults to HTP.
+      universe->setValue(1);
+      QCOMPARE(mode->currentIndex(), 1);
+      universe->setValue(0);
+      QCOMPARE(mode->currentIndex(), 0);
+    }
+    QSettings saved(file, QSettings::IniFormat);
+    QVERIFY(!saved.contains("view/mergeMode"));
+    QCOMPARE(saved.value("view/mergeModes/0/0").toInt(), 0);
+    QCOMPARE(saved.value("view/mergeModes/0/1").toInt(), 1);
+    QCOMPARE(saved.value("view/mergeModes/1/2").toInt(), 1);
+  }
   void mergeAndLog() {
     QTemporaryDir dir;
     Window w(22454, 22568, dir.filePath("settings.ini"));

@@ -31,6 +31,9 @@ private:
   QBitArray overrides = QBitArray(512, false);
   QCheckBox *followInput;
   QComboBox *mergeMode;
+  QMap<QString, int> universeMergeModes;
+  QString currentUniverseKey() const;
+  void syncMergeMode();
   QDockWidget *logDock;
   QPlainTextEdit *eventLog;
   QStringList pendingLog;

@@ -6,7 +6,7 @@ Environment: macOS Apple Silicon, AppleClang 21, Qt 6.12.0, C++17.
 
 - Release: `-Wall -Wextra -Wpedantic`, no compiler warnings reported.
 - Debug: AddressSanitizer and UndefinedBehaviorSanitizer.
-- Both builds pass the `protocol`, `window` and `levelcontrol` QtTest suites. The window suite has 10 passing cases including setup/cleanup; the encoder suite has 6. Seven Python release/mobile-tool tests also pass.
+- Both builds pass the `protocol`, `window` and `levelcontrol` QtTest suites. The window suite has 11 passing cases including setup/cleanup; the encoder suite has 6. Seven Python release/mobile-tool tests also pass.
 
 Sanitizer invocation:
 
@@ -33,7 +33,8 @@ Leak detection is disabled for this run; the sanitizer results do not establish 
 - HTP maximum levels, per-channel LTP ownership, unchanged keepalives, sACN priority selection and termination fallback.
 - External input follows through to unedited output channels; edited overrides survive new input and are released explicitly. Returned output is excluded from the baseline.
 - Timestamped log entries include each sender endpoint; memory is bounded to 2,000 journal entries.
-- Saved merge mode and all 512 override bits survive a settings round trip.
+- Independent merge modes for Art-Net and sACN universes survive navigation and a settings round trip. Two UDP senders demonstrate HTP in one universe and LTP in another; the former global mode migrates only to its last selected universe.
+- All 512 output override bits survive a settings round trip.
 - Sequence-disabled Art-Net followed by a nonzero sequence; old packet rejection.
 - sACN large forward sequence jumps, rollover and recent duplicate rejection.
 - Selecting an already received universe without waiting for another frame.

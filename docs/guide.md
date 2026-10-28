@@ -25,7 +25,9 @@ Desktop users can click a channel or navigate with the arrow keys. The universe 
 
 Each protocol/universe pair appears once, regardless of how many senders are present. The source count includes DMXPulse's own output only when it is actually received. Hover over a universe to see its senders.
 
-Choose the receive merge mode above the grid:
+Choose the receive merge mode above the grid. The choice is saved **per universe and protocol**: Art-Net universe 1 and sACN universe 1 can use different modes. Switching universes restores its own choice; new universes default to HTP. On upgrading from a global merge setting, that setting is retained for the previously selected universe only.
+
+Available modes:
 
 - **HTP** (default): the highest received value wins for each channel. An output edit below another source's level will therefore not lower the displayed result.
 - **LTP**: the last source to **change** a channel owns that channel. Repeated packets with unchanged values do not take ownership. A source's first packet establishes initial values for all channels. Arrival order breaks simultaneous changes.

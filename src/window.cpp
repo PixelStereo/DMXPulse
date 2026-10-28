@@ -236,11 +236,19 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   mergeMode = new QComboBox;
   mergeMode->setObjectName("mergeMode");
   mergeMode->addItems({"HTP", "LTP"});
-  mergeMode->setToolTip("HTP: highest received level. LTP: last source to "
-                        "change each channel. sACN priority is applied first.");
+  mergeMode->setToolTip(
+      "Applies to this protocol and universe only. HTP: highest "
+      "received level. LTP: last source to change each channel. "
+      "sACN priority is applied first.");
   canvasHeader->addWidget(mergeMode);
-  connect(mergeMode, &QComboBox::currentIndexChanged, this,
-          [this] { render(); });
+  connect(mergeMode, &QComboBox::currentIndexChanged, this, [this](int mode) {
+    universeMergeModes[currentUniverseKey()] = mode;
+    log(QString("CONFIG · %1 · U%2 · merge %3")
+            .arg(protocol->currentText())
+            .arg(universe->value())
+            .arg(mergeMode->currentText()));
+    render();
+  });
   auto legend = new QWidget;
   auto legendLayout = new QHBoxLayout(legend);
   legendLayout->setContentsMargins(0, 0, 0, 0);
@@ -847,6 +855,13 @@ void Window::log(const QString &message) {
                     "yyyy-MM-dd HH:mm:ss.zzz") +
                     " · " + line;
 }
+QString Window::currentUniverseKey() const {
+  return QString("%1/%2").arg(protocol->currentIndex()).arg(universe->value());
+}
+void Window::syncMergeMode() {
+  const QSignalBlocker blocker(mergeMode);
+  mergeMode->setCurrentIndex(universeMergeModes.value(currentUniverseKey(), 0));
+}
 QByteArray Window::merged(bool externalOnly, bool *live) {
   if (live)
     *live = false;
@@ -870,10 +885,11 @@ QByteArray Window::merged(bool externalOnly, bool *live) {
   if (live)
     *live = true;
   QByteArray result(512, 0);
+  const bool ltp = universeMergeModes.value(currentUniverseKey(), 0) == 1;
   std::array<quint64, 512> latest{};
   for (auto s : candidates)
     for (int ch = 0; ch < 512; ++ch)
-      if (mergeMode->currentIndex() == 0) {
+      if (!ltp) {
         if (quint8(s->frame.values[ch]) > quint8(result[ch]))
           result[ch] = s->frame.values[ch];
       } else if (s->changed[ch] >= latest[ch]) {
@@ -899,6 +915,7 @@ void Window::prepareOutput() {
       output[ch] = base[ch];
 }
 void Window::render() {
+  syncMergeMode();
   auto now = clock.elapsed();
   for (auto i = streams.begin(); i != streams.end();)
     if (now - i->seen > 60000)
@@ -937,13 +954,15 @@ void Window::render() {
                                            : " · " + stream->frame.name);
     }
     auto f = i.value().first()->frame;
-    QString text = QString("%1 · Universe %2  %3\n%4 source%5 · %6 live")
-                       .arg(f.sacn ? "sACN" : "Art-Net")
-                       .arg(f.universe)
-                       .arg(liveCount ? "●" : "○")
-                       .arg(i.value().size())
-                       .arg(i.value().size() == 1 ? "" : "s")
-                       .arg(liveCount);
+    QString text =
+        QString("%1 · Universe %2  %3\n%4 source%5 · %6 live · %7")
+            .arg(f.sacn ? "sACN" : "Art-Net")
+            .arg(f.universe)
+            .arg(liveCount ? "●" : "○")
+            .arg(i.value().size())
+            .arg(i.value().size() == 1 ? "" : "s")
+            .arg(liveCount)
+            .arg(universeMergeModes.value(i.key(), 0) ? "LTP" : "HTP");
     if (item->text() != text)
       item->setText(text);
     item->setToolTip(origins.join('\n'));
@@ -1146,8 +1165,25 @@ void Window::restoreSettings() {
                                   : s.value("view/sources", true).toBool());
   outputToggle->setChecked(compact ? true
                                    : s.value("view/output", true).toBool());
-  mergeMode->setCurrentIndex(
-      qBound(0, s.value("view/mergeMode", 0).toInt(), 1));
+  s.beginGroup("view/mergeModes");
+  for (const auto &key : s.allKeys()) {
+    const auto parts = key.split('/');
+    if (parts.size() != 2 || (parts[0] != "0" && parts[0] != "1"))
+      continue;
+    bool ok = false;
+    int u = parts[1].toInt(&ok);
+    bool sacn = parts[0] == "1";
+    if (ok && u >= (sacn ? 1 : 0) && u <= (sacn ? 63999 : 32767))
+      universeMergeModes[key] = qBound(0, s.value(key).toInt(), 1);
+  }
+  s.endGroup();
+  // The former global choice belongs to the previously selected universe;
+  // newly visited universes keep the default HTP mode.
+  if (s.contains("view/mergeMode") &&
+      !universeMergeModes.contains(currentUniverseKey()))
+    universeMergeModes[currentUniverseKey()] =
+        qBound(0, s.value("view/mergeMode").toInt(), 1);
+  syncMergeMode();
   followInput->setChecked(s.value("output/followInput", true).toBool());
   auto mask = s.value("output/overrides").toByteArray();
   for (int i = 0; i < 512; ++i)
@@ -1181,7 +1217,13 @@ void Window::saveSettings() {
   s.remove("view/inspectorTab");
   s.setValue("window/docks", saveState());
   s.setValue("log/paused", pauseLog->isChecked());
-  s.setValue("view/mergeMode", mergeMode->currentIndex());
+  s.remove("view/mergeMode");
+  s.remove("view/mergeModes");
+  s.beginGroup("view/mergeModes");
+  for (auto i = universeMergeModes.cbegin(); i != universeMergeModes.cend();
+       ++i)
+    s.setValue(i.key(), i.value());
+  s.endGroup();
   s.setValue("output/followInput", followInput->isChecked());
   QByteArray mask(512, 0);
   for (int i = 0; i < 512; ++i)

@@ -57,7 +57,7 @@ Your adapter, universe, addresses, levels, selected channel and workspace layout
 
 ## Small details that matter
 
-- One view per universe, with an explicit HTP/LTP choice and sACN priority handling.
+- One view per universe, with a saved HTP/LTP choice for each universe and sACN priority handling.
 - A detachable timestamped journal identifies incoming sources and outgoing packets.
 - No packet means **—**, rather than a value that looks like a received zero.
 - Stale input is clearly marked while the last values remain visible.
