@@ -268,15 +268,13 @@ jobs:
           mkdir -p dist
           APP="$(find build-ios -path '*Release-iphoneos/DMXPulse.app' -type d -print -quit)"
           test -n "$APP"
-          ditto -c -k --keepParent "$APP" dist/DMXPulse-ios-device-unsigned.zip
+          python3 scripts/package_ios.py "$APP"
       - name: Build simulator and on-device tests
         run: |
           qt-cmake -S . -B build-ios-simulator -G Xcode -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION"
-          cmake --build build-ios-simulator --config Release --parallel 3
+          cmake --build build-ios-simulator --target DMXPulseMobileTest --config Release --parallel 3
           codesign --force --deep --sign - build-ios-simulator/Release-iphonesimulator/DMXPulseMobileTest.app
-          codesign --force --deep --sign - build-ios-simulator/Release-iphonesimulator/DMXPulse.app
           python3 scripts/run_mobile_test.py ios build-ios-simulator/Release-iphonesimulator
-          ditto -c -k --keepParent build-ios-simulator/Release-iphonesimulator/DMXPulse.app dist/DMXPulse-ios-simulator-x86_64.zip
       - name: Export signed IPA when configured
         env:
           IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
@@ -285,7 +283,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD }}
         run: |
-          if [[ -n "$IOS_CERTIFICATE_BASE64" ]]; then bash scripts/sign_ios.sh; else echo 'No Apple signing secrets: shipping explicitly unsigned device and simulator packages.'; fi
+          if [[ -n "$IOS_CERTIFICATE_BASE64" ]]; then bash scripts/sign_ios.sh; else echo 'No Apple signing secrets: shipping an unsigned device IPA for resignment.'; fi
       - uses: actions/upload-artifact@v4
         with:
           name: package-ios
@@ -337,4 +335,13 @@ jobs:
             gh release create "$RELEASE_TAG" --verify-tag --draft --title "DMXPulse $RELEASE_TAG" --generate-notes
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          sys.path.insert(0, "scripts")
+          from release import stale_assets
+          tag = os.environ["RELEASE_TAG"]
+          release = json.loads(subprocess.check_output(["gh", "release", "view", tag, "--json", "assets"], text=True))
+          for name in stale_assets([asset["name"] for asset in release["assets"]], "dist"):
+              subprocess.run(["gh", "release", "delete-asset", tag, name, "--yes"], check=True)
+          PY
           gh release edit "$RELEASE_TAG" --draft=false

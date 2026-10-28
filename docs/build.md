@@ -41,7 +41,7 @@ For manual builds and distribution, use the matching Qt macOS kit and architectu
 python3 scripts/package_desktop.py macos --arch arm64
 ```
 
-The packager runs `macdeployqt`, rejects non-system absolute runtime dependencies, adds notices, applies and verifies an ad-hoc signature, launches a temporary-settings smoke test, and creates ZIP and DMG packages. It does not notarize or apply a Developer ID signature. The official Qt SDK is used in CI to avoid relying on unrelated package-manager runtimes.
+The packager runs `macdeployqt`, rejects non-system absolute runtime dependencies, adds notices, applies and verifies an ad-hoc signature, launches a temporary-settings smoke test, and creates one verified DMG for the selected architecture. It does not notarize or apply a Developer ID signature. The official Qt SDK is used in CI to avoid relying on unrelated package-manager runtimes.
 
 ### Windows
 
@@ -101,7 +101,7 @@ If no keystore is configured, CI signs an installable test APK using an ephemera
 
 ## iOS / iPadOS
 
-Use macOS, Xcode, the Qt 6.8.3 iOS kit and CMake's Xcode generator. CI builds device ARM64 and Intel simulator variants. The simulator variant uses x86-64 because that is the simulator architecture included by the selected Qt kit; use a matching Intel simulator environment.
+Use macOS, Xcode, the Qt 6.8.3 iOS kit and CMake's Xcode generator. CI builds the ARM64 device application and publishes one IPA. An Intel simulator is used only to run the mobile regression test; no simulator archive is published.
 
 ```sh
 /path/to/Qt/6.8.3/ios/bin/qt-cmake -S . -B build-ios -G Xcode \
@@ -111,11 +111,11 @@ Use macOS, Xcode, the Qt 6.8.3 iOS kit and CMake's Xcode generator. CI builds de
 cmake --build build-ios --config Release --parallel 3
 ```
 
-Unsigned device builds demonstrate compilation and are provided for signing/rebuilding; they are not installable IPAs. The custom plist includes the local-network usage description. Broadcast/multicast on physical iOS devices requires the approved `com.apple.developer.networking.multicast` entitlement in the provisioning profile. Unicast is available without that entitlement, subject to local-network permission.
+The unsigned device app is wrapped in `Payload/DMXPulse.app` inside `DMXPulse-ios-unsigned.ipa` using `python3 scripts/package_ios.py /path/to/DMXPulse.app`. This IPA is provided for resignment and is not directly installable before Apple signing/provisioning. The custom plist includes the local-network usage description. Broadcast/multicast on physical iOS devices requires the approved `com.apple.developer.networking.multicast` entitlement in the provisioning profile. Unicast is available without that entitlement, subject to local-network permission.
 
 ### Optional signed IPA
 
-Configure these Actions secrets to add `DMXPulse-ios.ipa` to a release:
+Configure these Actions secrets to replace the unsigned IPA with `DMXPulse-ios.ipa` in a release:
 
 | Secret | Value |
 |---|---|
@@ -147,13 +147,14 @@ Do not move published tags. Numeric tags (`v1.2`, `1.2.3`, `v1.2.3-rc.1`) determ
 
 Required release assets:
 
-- macOS ARM64 and x86-64 ZIPs (plus DMGs).
+- One macOS ARM64 DMG and one macOS x86-64 DMG.
 - Windows x86-64 portable ZIP.
 - Linux AMD64 and Raspberry Pi ARM64 DEBs.
 - Android ARM64 signed APK.
-- iOS unsigned ARM64 device and x86-64 simulator ZIPs.
+- Exactly one iOS ARM64 device IPA: unsigned for resignment, or signed when Apple signing is configured.
 - A source archive, `release.json` and `SHA256SUMS`.
-- A signed iOS IPA when Apple signing secrets are configured.
+
+Simulator builds remain internal to the test job. macOS ZIP duplicates and the former iOS ZIP archives are removed when updating an existing release.
 
 The release job downloads only package artifacts, validates the complete required set and archive integrity, computes checksums, creates a draft release, uploads assets, and publishes it. Missing packages or a failed desktop/mobile/sanitizer job block publication. Signing state is documented rather than presenting unsigned iOS artifacts as installable apps.
 

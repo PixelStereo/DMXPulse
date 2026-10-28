@@ -8,14 +8,25 @@ from pathlib import Path
 import re
 import zipfile
 import tarfile
+from package_ios import validate_ipa
 
 REQUIRED = (
-    "DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
+    "DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg",
     "DMXPulse-windows-x86_64.zip", "DMXPulse-linux-amd64.deb",
     "DMXPulse-raspberry-arm64.deb", "DMXPulse-android-arm64.apk",
-    "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip",
     "DMXPulse-source.tar.gz",
 )
+
+IOS_PACKAGES = ("DMXPulse-ios-unsigned.ipa", "DMXPulse-ios.ipa")
+OBSOLETE = ("DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
+            "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip")
+
+def stale_assets(names, directory):
+    obsolete = set(OBSOLETE)
+    obsolete.add("DMXPulse-ios.ipa" if (Path(directory) / "DMXPulse-ios-unsigned.ipa").is_file()
+                 else "DMXPulse-ios-unsigned.ipa")
+    return sorted(set(names) & obsolete)
+
 
 def numeric_version(tag, fallback):
     match = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?(?:[-+][0-9A-Za-z.-]+)?", tag)
@@ -31,25 +42,45 @@ def verify(directory):
     missing = [name for name in REQUIRED if not (directory / name).is_file()]
     if missing:
         raise ValueError("Missing release assets: " + ", ".join(missing))
-    for name in REQUIRED:
+    ios = [name for name in IOS_PACKAGES if (directory / name).is_file()]
+    if len(ios) != 1:
+        raise ValueError("Expected exactly one iOS device IPA (unsigned or signed)")
+    obsolete = [name for name in OBSOLETE if (directory / name).exists()]
+    if obsolete:
+        raise ValueError("Obsolete release assets: " + ", ".join(obsolete))
+    for name in (*REQUIRED, *ios):
         path = directory / name
         if path.stat().st_size == 0:
             raise ValueError("Empty asset: " + name)
-        if path.suffix in (".zip", ".apk"):
+        if path.suffix in (".zip", ".apk", ".ipa"):
             with zipfile.ZipFile(path) as archive:
                 if archive.testzip() is not None:
                     raise ValueError("Corrupt archive: " + name)
                 names = archive.namelist()
                 if path.suffix == ".apk" and not {"AndroidManifest.xml", "classes.dex"}.issubset(names):
                     raise ValueError("APK is missing its Android runtime")
+                if path.suffix == ".ipa":
+                    validate_ipa(archive)
+                    if name == "DMXPulse-ios.ipa" and not {
+                        "Payload/DMXPulse.app/embedded.mobileprovision",
+                        "Payload/DMXPulse.app/_CodeSignature/CodeResources",
+                    }.issubset(names):
+                        raise ValueError("Signed IPA is missing its profile/signature resources")
                 if path.suffix == ".zip":
-                    expected = "DMXPulse/DMXPulse.exe" if "windows" in name else "DMXPulse.app/Contents/MacOS/DMXPulse" if "macos" in name else "DMXPulse.app/DMXPulse"
+                    expected = "DMXPulse/DMXPulse.exe"
                     if expected not in names:
                         raise ValueError("Missing application executable in " + name)
                     if "windows" in name and "DMXPulse/platforms/qwindows.dll" not in names:
                         raise ValueError("Missing Windows Qt platform plugin")
                 if path.suffix == ".apk" and not any(n.startswith("lib/arm64-v8a/") and "DMXPulse" in n for n in names):
                     raise ValueError("Missing ARM64 Android application library")
+        elif path.suffix == ".dmg":
+            with path.open("rb") as image:
+                if path.stat().st_size < 512:
+                    raise ValueError("Invalid macOS disk image: " + name)
+                image.seek(-512, 2)
+                if image.read(4) != b"koly":
+                    raise ValueError("Invalid macOS UDIF trailer: " + name)
         elif name.endswith(".tar.gz"):
             with tarfile.open(path) as archive:
                 if "DMXPulse/CMakeLists.txt" not in archive.getnames():
@@ -81,7 +112,9 @@ def main():
     entries = [{"name": p.name, "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files]
     manifest = {"application": "DMXPulse", "version": version, "tag": tag,
                 "commit": os.environ.get("GITHUB_SHA", ""), "assets": entries,
-                "ios_device_package": "Unsigned; signing/provisioning is required. A signed IPA is included only when Apple signing secrets are configured."}
+                "ios_device_package": ("Unsigned IPA; Apple signing/provisioning is required before installation."
+                                       if (directory / "DMXPulse-ios-unsigned.ipa").exists()
+                                       else "Signed IPA; installation is limited by its Apple provisioning profile.")}
     (directory / "release.json").write_text(json.dumps(manifest, indent=2) + "\n")
     with (directory / "SHA256SUMS").open("w") as output:
         for path in sorted(directory.iterdir()):

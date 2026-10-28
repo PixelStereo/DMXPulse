@@ -65,9 +65,9 @@ def macos(build, output, arch):
     run("codesign", "--force", "--deep", "--sign", "-", app)
     run("codesign", "--verify", "--deep", "--strict", app)
     smoke(app / "Contents/MacOS/DMXPulse")
-    run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, output / f"DMXPulse-macos-{arch}.zip")
     (stage / "Applications").symlink_to("/Applications")
     run("hdiutil", "create", "-volname", "DMXPulse", "-srcfolder", stage, "-ov", "-format", "UDZO", output / f"DMXPulse-macos-{arch}.dmg")
+    run("hdiutil", "verify", output / f"DMXPulse-macos-{arch}.dmg")
     shutil.rmtree(stage)
 
 def windows(build, output):

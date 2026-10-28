@@ -34,12 +34,12 @@ Packages are attached to [tagged releases](https://github.com/PixelStereo/DMXPul
 
 | Device | Package |
 |:---|:---|
-| Mac · Apple Silicon or Intel | `.dmg` or `.zip`, with the Qt runtime included |
+| Mac · Apple Silicon or Intel | One `.dmg` per architecture, with the Qt runtime included |
 | Windows · 64-bit | Portable `.zip`, with runtime dependencies |
 | Linux · Debian 12 / compatible Ubuntu desktop | `amd64.deb` |
 | Raspberry Pi · 64-bit Raspberry Pi OS Bookworm desktop | `arm64.deb` |
 | Android · 64-bit, Android 9+ | Installable `.apk`, with a touch-oriented workspace |
-| iPhone / iPad | Simulator and unsigned device builds; an installable IPA is added when Apple signing is configured |
+| iPhone / iPad | Device `.ipa`; unsigned for resignment, or signed when Apple signing is configured |
 
 macOS packages use an ad-hoc signature unless a distribution signing pipeline is added. iOS device installation requires appropriate Apple signing and provisioning. Android packages use a CI test key until a persistent release key is configured. See the release notes and [installation guide](docs/guide.md#installation) before installing.
 
