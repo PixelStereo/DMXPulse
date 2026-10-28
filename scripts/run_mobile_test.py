@@ -75,7 +75,7 @@ def ios(build):
     # SpringBoard. Keep a finite budget without mistaking slow startup for an
     # application failure.
     run("xcrun", "simctl", "bootstatus", device, "-b", timeout=420)
-    run("xcrun", "simctl", "install", device, str(candidates[0]), timeout=90)
+    run("xcrun", "simctl", "install", device, str(candidates[0]), timeout=300)
     result = run("xcrun", "simctl", "launch", "--console", device, BUNDLE, capture_output=True, timeout=180)
     log = result.stdout + result.stderr
     print(log)
