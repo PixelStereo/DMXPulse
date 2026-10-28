@@ -23,7 +23,19 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 
 ### macOS
 
-Use the matching Qt macOS kit and architecture (`arm64` or `x86_64`). The executable is `build/DMXPulse.app`.
+For a local build, run this single command from the repository root:
+
+```sh
+./build.sh
+```
+
+The executable script installs Homebrew if missing using its [official installer](https://brew.sh), installs missing CMake and Qt Base dependencies, configures a native Release build in `build-macos`, compiles the application, and opens the freshly built copy. Existing dependencies and build objects are reused. It also works when invoked using its absolute path from another directory. The application uses the locally installed Homebrew Qt runtime; use the CI packages or the packager below for distribution.
+
+If Apple Command Line Tools are missing, the script opens Apple's installer. Finish that installation and run `./build.sh` again. Homebrew's first installation may ask for your administrator password. Subsequent builds need only the same command.
+
+Use `./build.sh --no-open` to compile without launching, or `DMXPULSE_BUILD_JOBS=8 ./build.sh` to change the default four parallel build jobs. By default the script launches a new instance of the freshly built application.
+
+For manual builds and distribution, use the matching Qt macOS kit and architecture (`arm64` or `x86_64`). The executable is `build/DMXPulse.app`.
 
 ```sh
 python3 scripts/package_desktop.py macos --arch arm64
