@@ -72,7 +72,7 @@ cmake --build build-android --target apk --parallel 3
 python3 scripts/package_android.py
 ```
 
-The manifest declares Internet, network state, Wi-Fi state and multicast-lock permissions. Listening acquires a non-reference-counted Wi-Fi multicast lock and releases it when stopped. The mobile UI uses Monitor / Inspect / Output tabs and a scrollable eight-column grid. Network behavior still needs physical-device testing on the intended Wi-Fi infrastructure.
+The manifest declares Internet, network state, Wi-Fi state and multicast-lock permissions. Listening acquires a non-reference-counted Wi-Fi multicast lock and releases it when stopped. The mobile UI stacks the universe list, eight-column receive grid and output panel vertically in a scrollable workspace. Network behavior still needs physical-device testing on the intended Wi-Fi infrastructure.
 
 ### Android signing secrets
 
