@@ -2,7 +2,6 @@
 import base64
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
@@ -37,9 +36,8 @@ def main():
         apk = output / "DMXPulse-android-arm64.apk"
         run(tools / "apksigner", "sign", "--ks", keystore, "--ks-key-alias", alias,
             "--ks-pass", "env:ANDROID_KEYSTORE_PASSWORD", "--key-pass", "env:ANDROID_KEY_PASSWORD",
-            "--out", apk, aligned)
+            "--v4-signing-enabled", "false", "--out", apk, aligned)
         run(tools / "apksigner", "verify", "--verbose", apk)
-        shutil.copy2("THIRD-PARTY-NOTICES.md", output / "Android-NOTICES.md")
 
 if __name__ == "__main__":
     main()

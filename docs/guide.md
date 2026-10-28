@@ -2,7 +2,7 @@
 
 ## Installation
 
-Get the package matching your device from [Releases](https://github.com/PixelStereo/DMXPulse/releases). Verify `SHA256SUMS` if you need to check a download's integrity.
+Get the package matching your device from [Releases](https://github.com/PixelStereo/DMXPulse/releases).
 
 - **macOS:** download the DMG for Apple Silicon (`arm64`) or Intel (`x86_64`), open it, and drag DMXPulse to Applications. The package includes Qt. Current automated packages are ad-hoc signed, not notarized; macOS may require you to approve opening the application in Privacy & Security.
 - **Windows:** extract the whole ZIP and launch `DMXPulse.exe`. Keep the DLLs and plugin folders alongside it.

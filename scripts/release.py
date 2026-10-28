@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """Release metadata, version normalization and complete-package validation."""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import zipfile
-import tarfile
 from package_ios import validate_ipa
 
 REQUIRED = (
     "DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg",
     "DMXPulse-windows-x86_64.zip", "DMXPulse-linux-amd64.deb",
     "DMXPulse-raspberry-arm64.deb", "DMXPulse-android-arm64.apk",
-    "DMXPulse-source.tar.gz",
 )
 
 IOS_PACKAGES = ("DMXPulse-ios-unsigned.ipa", "DMXPulse-ios.ipa")
 OBSOLETE = ("DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
-            "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip")
+            "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip",
+            "DMXPulse-source.tar.gz", "release.json", "SHA256SUMS",
+            "Android-NOTICES.md", "DMXPulse-android-arm64.apk.idsig")
 
 def stale_assets(names, directory):
     obsolete = set(OBSOLETE)
@@ -81,13 +80,9 @@ def verify(directory):
                 image.seek(-512, 2)
                 if image.read(4) != b"koly":
                     raise ValueError("Invalid macOS UDIF trailer: " + name)
-        elif name.endswith(".tar.gz"):
-            with tarfile.open(path) as archive:
-                if "DMXPulse/CMakeLists.txt" not in archive.getnames():
-                    raise ValueError("Source archive is missing the build project")
         elif path.suffix == ".deb" and path.read_bytes()[:8] != b"!<arch>\n":
             raise ValueError("Invalid Debian package: " + name)
-    return [p for p in sorted(directory.iterdir()) if p.is_file() and p.name not in ("release.json", "SHA256SUMS")]
+    return [directory / name for name in sorted((*REQUIRED, *ios))]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -109,17 +104,7 @@ def main():
         return
     directory = Path(args.directory)
     files = verify(directory)
-    entries = [{"name": p.name, "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files]
-    manifest = {"application": "DMXPulse", "version": version, "tag": tag,
-                "commit": os.environ.get("GITHUB_SHA", ""), "assets": entries,
-                "ios_device_package": ("Unsigned IPA; Apple signing/provisioning is required before installation."
-                                       if (directory / "DMXPulse-ios-unsigned.ipa").exists()
-                                       else "Signed IPA; installation is limited by its Apple provisioning profile.")}
-    (directory / "release.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    with (directory / "SHA256SUMS").open("w") as output:
-        for path in sorted(directory.iterdir()):
-            if path.is_file() and path.name != "SHA256SUMS":
-                output.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
+    print("Verified release packages: " + ", ".join(path.name for path in files))
 
 if __name__ == "__main__":
     main()

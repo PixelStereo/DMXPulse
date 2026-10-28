@@ -152,11 +152,10 @@ Required release assets:
 - Linux AMD64 and Raspberry Pi ARM64 DEBs.
 - Android ARM64 signed APK.
 - Exactly one iOS ARM64 device IPA: unsigned for resignment, or signed when Apple signing is configured.
-- A source archive, `release.json` and `SHA256SUMS`.
 
-Simulator builds remain internal to the test job. macOS ZIP duplicates and the former iOS ZIP archives are removed when updating an existing release.
+Only these seven packages are attached to releases. Simulator builds remain internal to the test job. Duplicate macOS ZIPs, former iOS ZIPs, custom source archives, metadata files and Android sidecar files are removed when updating an existing release. GitHub provides its own source downloads. License notices remain embedded in the application.
 
-The release job downloads only package artifacts, validates the complete required set and archive integrity, computes checksums, creates a draft release, uploads assets, and publishes it. Missing packages or a failed desktop/mobile/sanitizer job block publication. Signing state is documented rather than presenting unsigned iOS artifacts as installable apps.
+The release job downloads package artifacts, validates the complete required set and archive integrity, creates a draft release, uploads only the seven validated packages, and publishes it. Missing packages or a failed desktop/mobile/sanitizer job block publication. Signing state is documented rather than presenting unsigned iOS artifacts as installable apps.
 
 ## Checks and diagnostics
 

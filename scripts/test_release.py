@@ -22,9 +22,7 @@ class ReleaseTests(unittest.TestCase):
 
 class PackageSetTests(unittest.TestCase):
     def make_release(self, directory):
-        import io
         import plistlib
-        import tarfile
         import zipfile
         from release import REQUIRED
         root = Path(directory)
@@ -42,11 +40,6 @@ class PackageSetTests(unittest.TestCase):
                 with zipfile.ZipFile(path, 'w') as archive:
                     for member in ('AndroidManifest.xml', 'classes.dex', 'lib/arm64-v8a/libDMXPulse.so'):
                         archive.writestr(member, b'content')
-            else:
-                with tarfile.open(path, 'w:gz') as archive:
-                    member = tarfile.TarInfo('DMXPulse/CMakeLists.txt')
-                    member.size = 5
-                    archive.addfile(member, io.BytesIO(b'cmake'))
         with zipfile.ZipFile(root / 'DMXPulse-ios-unsigned.ipa', 'w') as archive:
             archive.writestr('Payload/DMXPulse.app/Info.plist', plistlib.dumps({
                 'CFBundleIdentifier': 'fr.pixelstereo.dmxpulse',
@@ -59,7 +52,10 @@ class PackageSetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self.make_release(directory)
             files = verify(root)
-            self.assertEqual(len(files), 8)
+            self.assertEqual(len(files), 7)
+            self.assertEqual(set(root.iterdir()), set(files))
+            (root / 'internal-build-log.txt').write_text('CI log')
+            self.assertEqual(files, verify(root))
             (root / 'DMXPulse-ios-unsigned.ipa').rename(root / 'DMXPulse-ios-device-unsigned.zip')
             with self.assertRaisesRegex(ValueError, 'one iOS device IPA'):
                 verify(root)
@@ -93,8 +89,12 @@ class PackageSetTests(unittest.TestCase):
             self.assertEqual(stale_assets([
                 'DMXPulse-ios.ipa', 'DMXPulse-ios-unsigned.ipa',
                 'DMXPulse-macos-arm64.zip', 'DMXPulse-macos-arm64.dmg',
+                'DMXPulse-source.tar.gz', 'release.json', 'SHA256SUMS',
+                'Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
                 'DMXPulse-windows-x86_64.zip', 'custom-user-file.zip'], directory),
-                ['DMXPulse-ios.ipa', 'DMXPulse-macos-arm64.zip'])
+                ['Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
+                 'DMXPulse-ios.ipa', 'DMXPulse-macos-arm64.zip',
+                 'DMXPulse-source.tar.gz', 'SHA256SUMS', 'release.json'])
 
 
 if __name__ == "__main__":
