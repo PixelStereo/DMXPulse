@@ -18,19 +18,32 @@ private:
     QString ip;
     qint64 seen = 0;
     quint64 packets = 0;
+    bool own = false;
+    std::array<quint64, 512> changed{};
   };
   quint16 artPort, sacnPort;
   QUdpSocket art, artUnicast, sacn, tx;
   QTimer refresh, sendTimer;
   QElapsedTimer clock;
   QMap<QString, Stream> streams;
-  QString selected;
+  quint64 arrival = 0;
+  QMap<QString, QByteArray> heldInput, heldExternal;
+  QBitArray overrides = QBitArray(512, false);
+  QCheckBox *followInput;
+  QComboBox *mergeMode;
+  QDockWidget *logDock;
+  QPlainTextEdit *eventLog;
+  QStringList pendingLog;
+  QCheckBox *pauseLog;
+  quint16 lastTxPort = 0;
+  QHostAddress lastTxAddress;
+  QByteArray merged(bool externalOnly, bool *live = nullptr);
+  void prepareOutput();
+  void log(const QString &message);
   std::array<int, 512> paintedInput{}, paintedOutput{};
   QLabel *sourceHint;
-  QPushButton *copyInput;
   quint64 sent = 0, reordered = 0;
   QSet<QUdpSocket *> pendingDrains;
-  bool awaitingOutputReturn = false;
   bool workspaceSaved = false;
   QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
   QComboBox *iface, *protocol;
@@ -43,9 +56,8 @@ private:
   QSplitter *split;
   int columns = 32;
   bool compact = false;
-  QTabWidget *mobileTabs = nullptr;
   QWidget *side, *outputPanel;
-  QToolButton *outputToggle;
+  QAction *outputToggle;
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;
   std::unique_ptr<QSettings> settings;
   void restoreSettings();
@@ -57,7 +69,6 @@ protected:
 
 private:
   LevelControl *encoder;
-  QTabWidget *inspectorTabs;
   QSet<int> groups;
   QNetworkInterface network;
   quint8 sequence = 0;
@@ -72,5 +83,4 @@ private:
   void transmit(bool terminated = false);
   void endSend();
   void edit(int);
-  void selectStream();
 };

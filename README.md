@@ -23,7 +23,7 @@ Read a channel number and its value without opening another window. Every tile f
 | Monitor | Inspect | Send |
 |:---|:---|:---|
 | See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Shape levels with a rotary encoder, fine steps or an exact value. |
-| Choose an interface, protocol and universe. | Keep different senders separate. | Copy an entire received universe into your output. |
+| Choose an interface, protocol and universe. | Merge received sources with HTP or LTP. | Follow input and override individual channels. |
 | Spot live, stale and missing input immediately. | Open network diagnostics when you need more detail. | Enable transmission explicitly, at approximately 30 Hz. |
 
 **The grid tells the truth.** It only shows data received through the network. Turning the encoder prepares the output; it changes the grid only when the resulting packets are actually received.
@@ -47,17 +47,18 @@ macOS packages use an ad-hoc signature unless a distribution signing pipeline is
 
 1. **Choose your interface.** Select the adapter connected to your lighting network.
 2. **Choose a protocol and universe.** Art-Net starts at universe **0**; sACN starts at **1**.
-3. **Start listening.** Select a detected source to inspect its channels.
+3. **Start listening.** Select a detected universe to inspect its channels.
 
 For a same-device loopback test, choose the local `127.0.0.1` adapter and use `127.0.0.1` as the Art-Net output destination. Prepare a channel value, then enable transmission. A returned packet is required before that value appears in the grid.
 
 ## Pick up where you left off
 
-Your adapter, universe, addresses, levels, selected channel and workspace layout are saved automatically. Startup options let you resume listening and optionally transmission. On phones and tablets, switch between **Monitor**, **Inspect** and **Output** without squeezing desktop controls onto a small screen.
+Your adapter, universe, addresses, levels, selected channel and workspace layout are saved automatically. Startup options let you resume listening and optionally transmission. The universe list, monitor and output controls share one workspace. On phones and tablets, the panels stack vertically.
 
 ## Small details that matter
 
-- Incoming sources stay separate; there is no hidden HTP/LTP merge.
+- One view per universe, with an explicit HTP/LTP choice and sACN priority handling.
+- A detachable timestamped journal identifies incoming sources and outgoing packets.
 - No packet means **—**, rather than a value that looks like a received zero.
 - Stale input is clearly marked while the last values remain visible.
 - Multicast reception follows the selected sACN universe.

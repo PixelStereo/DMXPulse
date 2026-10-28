@@ -62,7 +62,8 @@ private slots:
     QCOMPARE(grid->item(0, 0)->background().color(), QColor(231, 231, 231));
     QCOMPARE(grid->item(0, 0)->foreground().color(), QColor(Qt::black));
     QCOMPARE(grid->item(0, 1)->background().color(), QColor(Qt::black));
-    w.findChild<QTabWidget *>("inspectorTabs")->setCurrentIndex(1);
+    QVERIFY(w.findChildren<QTabWidget *>().isEmpty());
+    w.findChild<QComboBox *>("mergeMode")->setCurrentIndex(1);
     auto boxes = w.findChildren<QSpinBox *>();
     QSpinBox *value = nullptr;
     for (auto b : boxes)
@@ -76,14 +77,15 @@ private slots:
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n231"));
     QCOMPARE(grid->item(0, 0)->background().color(), QColor(231, 231, 231));
     QTRY_VERIFY(grid->item(0, 0)->toolTip().contains("Output: 127"));
-    if (!qEnvironmentVariable("DMXSCOPE_SCREENSHOT").isEmpty())
-      w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
     auto destination = w.findChild<QLineEdit *>("destination");
     destination->setText("127.0.0.1");
     send->click();
     QVERIFY(send->isChecked());
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("127"), 2000);
-    QCOMPARE(sources->count(), 2);
+    QCOMPARE(sources->count(), 1);
+    QVERIFY(sources->item(0)->text().contains("2 sources"));
+    if (!qEnvironmentVariable("DMXSCOPE_SCREENSHOT").isEmpty())
+      w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
     send->click();
     QVERIFY(!send->isChecked());
     w.findChild<LevelControl *>("outputEncoder")->setValue(64);
@@ -138,15 +140,17 @@ private slots:
       w.findChild<QSpinBox *>("universe")->setValue(514);
       w.findChild<QSpinBox *>("priority")->setValue(120);
       w.findChild<QLineEdit *>("destination")->setText("192.168.1.255");
+      w.findChild<QComboBox *>("mergeMode")->setCurrentIndex(1);
+      w.findChild<QPushButton *>("zeroOutput")->click();
       w.findChild<QSpinBox *>("channel")->setValue(47);
       w.findChild<QSpinBox *>("outputValue")->setValue(201);
       for (auto action : w.findChildren<QAction *>()) {
         if (action->text() == "Network diagnostics")
           action->setChecked(true);
-        if (action->text() == "Sources and inspector")
+        if (action->text() == "Universes")
           action->setChecked(false);
       }
-      w.findChild<QToolButton *>("outputToggle")->setChecked(false);
+      w.findChild<QAction *>("outputToggle")->setChecked(false);
       w.findChild<QPushButton *>("listen")->setChecked(true);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
     }
@@ -161,16 +165,20 @@ private slots:
       QCOMPARE(w.findChild<QSpinBox *>("priority")->value(), 120);
       QCOMPARE(w.findChild<QLineEdit *>("destination")->text(),
                QString("192.168.1.255"));
+      QCOMPARE(w.findChild<QComboBox *>("mergeMode")->currentIndex(), 1);
       QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 47);
+      QSettings saved(file, QSettings::IniFormat);
+      QCOMPARE(saved.value("output/overrides").toByteArray(),
+               QByteArray(512, 1));
       QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 201);
-      QCOMPARE(w.findChild<QTabWidget *>("inspectorTabs")->currentIndex(), 1);
+      QVERIFY(w.findChildren<QTabWidget *>().isEmpty());
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
-      QVERIFY(!w.findChild<QToolButton *>("outputToggle")->isChecked());
+      QVERIFY(!w.findChild<QAction *>("outputToggle")->isChecked());
       for (auto action : w.findChildren<QAction *>()) {
         if (action->text() == "Network diagnostics")
           QVERIFY(action->isChecked());
-        if (action->text() == "Sources and inspector")
+        if (action->text() == "Universes")
           QVERIFY(!action->isChecked());
       }
       w.findChild<QPushButton *>("listen")->setChecked(false);
@@ -303,8 +311,110 @@ private slots:
     w.findChild<QPushButton *>("transmit")->setChecked(true);
     QTRY_COMPARE_WITH_TIMEOUT(grid->item(8, 11)->text(), QString("268\n76"),
                               2000);
-    QCOMPARE(w.findChild<QListWidget *>()->count(), 2);
+    QCOMPARE(w.findChild<QListWidget *>()->count(), 1);
     w.findChild<QPushButton *>("transmit")->setChecked(false);
+  }
+  void mergeAndLog() {
+    QTemporaryDir dir;
+    Window w(22454, 22568, dir.filePath("settings.ini"));
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    auto grid = w.findChild<QTableWidget *>();
+    auto mode = w.findChild<QComboBox *>("mergeMode");
+    QUdpSocket a, b;
+    Frame x, y;
+    x.values = QByteArray(512, 0);
+    x.values[0] = char(200);
+    x.values[1] = 50;
+    y = x;
+    y.values[0] = 40;
+    y.values[1] = 100;
+    auto sendFrame = [&](QUdpSocket &socket, const Frame &frame) {
+      socket.writeDatagram(Protocol::encode(frame), QHostAddress::LocalHost,
+                           22454);
+    };
+    sendFrame(a, x);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+    sendFrame(b, y);
+    QTRY_COMPARE(grid->item(0, 1)->text(), QString("2\n100"));
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n200"));
+    QCOMPARE(w.findChild<QListWidget *>()->count(), 1);
+    mode->setCurrentIndex(1);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n40"));
+    // An unchanged keepalive must not take LTP ownership back.
+    sendFrame(a, x);
+    QTest::qWait(100);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n40"));
+    x.values[0] = 30;
+    sendFrame(a, x);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n30"));
+    QCOMPARE(grid->item(0, 1)->text(), QString("2\n100"));
+    auto log = w.findChild<QPlainTextEdit *>("networkLog");
+    QTRY_VERIFY(log->toPlainText().contains(
+        QString("127.0.0.1:%1").arg(a.localPort())));
+    QVERIFY(log->toPlainText().contains(
+        QString("127.0.0.1:%1").arg(b.localPort())));
+    QVERIFY(log->toPlainText().contains(
+        QDate::currentDate().toString("yyyy-MM-dd")));
+    QVERIFY(log->toPlainText().contains("1=30"));
+    QCOMPARE(log->maximumBlockCount(), 2000);
+    // sACN priority is applied before either merge algorithm.
+    w.findChild<QComboBox *>("protocol")->setCurrentIndex(1);
+    x.sacn = y.sacn = true;
+    x.universe = y.universe = 1;
+    x.cid = QUuid::createUuid().toRfc4122();
+    y.cid = QUuid::createUuid().toRfc4122();
+    x.priority = 120;
+    y.priority = 100;
+    x.values[0] = 10;
+    y.values[0] = char(250);
+    a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 22568);
+    b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 22568);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n10"));
+    mode->setCurrentIndex(0);
+    QCOMPARE(grid->item(0, 0)->text(), QString("1\n10"));
+    // A terminated source immediately yields to the remaining one.
+    x.terminated = true;
+    a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 22568);
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n250"));
+  }
+  void outputFollowsExternalWithoutFeedback() {
+    QTemporaryDir dir;
+    Window w(23454, 23568, dir.filePath("settings.ini"));
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QComboBox *>("mergeMode")->setCurrentIndex(1);
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QUdpSocket source;
+    Frame f;
+    f.values = QByteArray(512, 0);
+    f.values[4] = 96;
+    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 23454);
+    auto grid = w.findChild<QTableWidget *>();
+    QTRY_COMPARE(grid->item(0, 4)->text(), QString("5\n96"));
+    w.findChild<QSpinBox *>("channel")->setValue(268);
+    w.findChild<LevelControl *>("outputEncoder")->setValue(76);
+    QCOMPARE(grid->item(8, 11)->text(), QString("268\n0"));
+    w.findChild<QLineEdit *>("destination")->setText("127.0.0.1");
+    w.findChild<QPushButton *>("transmit")->setChecked(true);
+    QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n76"));
+    QCOMPARE(grid->item(0, 4)->text(), QString("5\n96"));
+    f.values[4] = 20;
+    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 23454);
+    QTRY_VERIFY(grid->item(0, 4)->toolTip().contains("Output: 20"));
+    QCOMPARE(grid->item(8, 11)->text(), QString("268\n76"));
+    w.findChild<QPushButton *>("releaseOverrides")->click();
+    QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n0"));
+    QCOMPARE(w.findChild<QListWidget *>()->count(), 1);
+    w.findChild<QPushButton *>("transmit")->setChecked(false);
+    // Returning output is excluded from the baseline even after TX stops.
+    w.findChild<QPushButton *>("releaseOverrides")->click();
+    QTRY_VERIFY(grid->item(8, 11)->toolTip().contains("Output: 0"));
   }
   void closePreservesSession() {
     QTemporaryDir dir;

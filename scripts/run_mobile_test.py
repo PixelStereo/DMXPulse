@@ -2,6 +2,7 @@
 """Require the on-device test marker; process startup alone is not a pass."""
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -39,20 +40,43 @@ def android(build):
     raise RuntimeError("Android test did not report completion:\n" + log)
 
 
+def select_ios_device(devices):
+    candidates = []
+    for runtime, group in devices.items():
+        match = re.search(r"iOS-(\d+(?:-\d+)*)$", runtime)
+        if not match:
+            continue
+        version = tuple(int(n) for n in match.group(1).split("-"))
+        if version < (16,):
+            continue
+        for device in group:
+            if device.get("isAvailable"):
+                # Reuse a booted phone, otherwise prefer a mature runtime and
+                # a phone over a tablet to keep CI simulator startup lightweight.
+                rank = (device.get("state") != "Booted", version,
+                        "iPhone" not in device.get("name", ""), device.get("name", ""))
+                candidates.append((rank, device))
+    if not candidates:
+        raise RuntimeError("No installed iOS 16+ simulator runtime")
+    return min(candidates, key=lambda item: item[0])[1]
+
+
 def ios(build):
     candidates = list(Path(build).rglob("DMXPulseMobileTest.app"))
     if len(candidates) != 1:
         raise RuntimeError(f"Expected one iOS test app: {candidates}")
     devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True, timeout=60))["devices"]
-    available = [d for runtime, group in devices.items() if "iOS" in runtime for d in group if d["isAvailable"]]
-    if not available:
-        raise RuntimeError("No installed iOS simulator runtime")
-    device = available[0]["udid"]
-    if available[0]["state"] != "Booted":
+    selected = select_ios_device(devices)
+    device = selected["udid"]
+    print(f"Using iOS simulator {selected.get('name', device)} ({device})", flush=True)
+    if selected["state"] != "Booted":
         run("xcrun", "simctl", "boot", device, timeout=90)
-    run("xcrun", "simctl", "bootstatus", device, "-b", timeout=180)
+    # Cold GitHub-hosted simulators can spend several minutes waiting on
+    # SpringBoard. Keep a finite budget without mistaking slow startup for an
+    # application failure.
+    run("xcrun", "simctl", "bootstatus", device, "-b", timeout=420)
     run("xcrun", "simctl", "install", device, str(candidates[0]), timeout=90)
-    result = run("xcrun", "simctl", "launch", "--console", device, BUNDLE, capture_output=True, timeout=90)
+    result = run("xcrun", "simctl", "launch", "--console", device, BUNDLE, capture_output=True, timeout=180)
     log = result.stdout + result.stderr
     print(log)
     if PASS not in log or FAIL in log:
