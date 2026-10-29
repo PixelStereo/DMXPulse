@@ -3,6 +3,121 @@
 class WindowTest : public QObject {
   Q_OBJECT
 private slots:
+  void activeChannelsFilter_data() {
+    QTest::addColumn<bool>("sacn");
+    QTest::addColumn<bool>("compact");
+    QTest::newRow("artnet-desktop") << false << false;
+    QTest::newRow("sacn-desktop") << true << false;
+    QTest::newRow("artnet-mobile") << false << true;
+    QTest::newRow("sacn-mobile") << true << true;
+  }
+  void activeChannelsFilter() {
+    QFETCH(bool, sacn);
+    QFETCH(bool, compact);
+    QTemporaryDir dir;
+    const auto previousCompact = qgetenv("DMXPULSE_COMPACT_UI");
+    qputenv("DMXPULSE_COMPACT_UI", compact ? "1" : "0");
+    Window w(30454, 30568, dir.filePath("settings.ini"));
+    if (previousCompact.isNull())
+      qunsetenv("DMXPULSE_COMPACT_UI");
+    else
+      qputenv("DMXPULSE_COMPACT_UI", previousCompact);
+    w.show();
+    auto iface = w.findChild<QComboBox *>("networkInterface");
+    for (int i = 0; i < iface->count(); ++i)
+      if (iface->itemText(i).contains("[local]"))
+        iface->setCurrentIndex(i);
+    w.findChild<QComboBox *>("protocol")->setCurrentIndex(sacn ? 1 : 0);
+    auto filter = w.findChild<QAction *>("activeChannelsOnly");
+    auto grid = w.findChild<QTableWidget *>("channelGrid");
+    auto channel = w.findChild<QSpinBox *>("channel");
+    auto value = w.findChild<QSpinBox *>("outputValue");
+    auto empty = w.findChild<QLabel *>("emptyChannelGrid");
+    QVERIFY(filter);
+    QVERIFY(!filter->isChecked());
+    filter->setChecked(true);
+    QCOMPARE(grid->rowCount(), 0);
+    QVERIFY(empty->isVisible());
+    value->setValue(200);
+    QTest::qWait(50);
+    QCOMPARE(grid->rowCount(), 0); // Output edits cannot create received channels.
+    w.findChild<QPushButton *>("listen")->setChecked(true);
+    QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
+    QUdpSocket socket;
+    Frame f;
+    f.sacn = sacn;
+    f.universe = sacn ? 1 : 0;
+    f.cid = QUuid::createUuid().toRfc4122();
+    f.values = QByteArray(512, 0);
+    f.values[2] = 17;
+    f.values[32] = char(255);
+    f.values[511] = 1;
+    auto publish = [&] {
+      ++f.sequence;
+      socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+                           sacn ? 30568 : 30454);
+    };
+    publish();
+    QTRY_COMPARE(grid->rowCount(), 1);
+    QCOMPARE(grid->item(0, 0)->text(), QString("3\n17"));
+    QCOMPARE(grid->item(0, 1)->text(), QString("33\n255"));
+    QCOMPARE(grid->item(0, 2)->text(), QString("512\n1"));
+    QCOMPARE(grid->item(0, 1)->background().color(), QColor(Qt::white));
+    QVERIFY(!empty->isVisible());
+    QCOMPARE(grid->item(0, 3)->flags(), Qt::NoItemFlags);
+    QVERIFY(grid->item(0, 3)->text().isEmpty());
+    grid->setCurrentCell(0, 2);
+    QCOMPARE(channel->value(), 512);
+    value->setValue(243);
+    QTest::qWait(50);
+    QCOMPARE(grid->item(0, 2)->text(), QString("512\n1"));
+    f.values[2] = f.values[511] = 0;
+    f.values[100] = 31;
+    publish();
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("33\n255"));
+    QCOMPARE(grid->item(0, 1)->text(), QString("101\n31"));
+    QCOMPARE(channel->value(), 512); // Repacking must not retarget output edits.
+    QVERIFY(!grid->currentIndex().isValid());
+    channel->setValue(101);
+    QCOMPARE(grid->currentColumn(), 1);
+    f.values[0] = 55;
+    publish();
+    QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n55"));
+    QCOMPARE(channel->value(), 101);
+    QCOMPARE(grid->currentColumn(), 2);
+    QSignalSpy updates(grid->model(), &QAbstractItemModel::dataChanged);
+    QTest::qWait(100);
+    QCOMPARE(updates.count(), 0);
+    if (!qEnvironmentVariable("DMXPULSE_FILTER_SCREENSHOT").isEmpty())
+      w.grab().save(qEnvironmentVariable("DMXPULSE_FILTER_SCREENSHOT"));
+    filter->setChecked(false);
+    QCOMPARE(grid->rowCount(), compact ? 64 : 16);
+    QCOMPARE(grid->item(100 / grid->columnCount(), 100 % grid->columnCount())->text(),
+             QString("101\n31"));
+    QCOMPARE(channel->value(), 101);
+    QCOMPARE(grid->currentRow(), 100 / grid->columnCount());
+    filter->setChecked(true);
+    f.values.fill(0);
+    publish();
+    QTRY_COMPARE(grid->rowCount(), 0);
+    QVERIFY(empty->isVisible());
+    QVERIFY(empty->text().contains("No channels above zero"));
+    QCOMPARE(channel->value(), 101);
+    // Switching universes must not leave the previous universe's cells behind.
+    f.values[511] = 99;
+    publish();
+    QTRY_COMPARE(grid->rowCount(), 1);
+    w.findChild<QSpinBox *>("universe")->setValue(2);
+    QCOMPARE(grid->rowCount(), 0);
+    w.findChild<QSpinBox *>("universe")->setValue(f.universe);
+    QCOMPARE(grid->item(0, 0)->text(), QString("512\n99"));
+    f.values.fill(1);
+    publish();
+    QTRY_COMPARE(grid->rowCount(), compact ? 64 : 32);
+    QCOMPARE(grid->item(grid->rowCount() - 1, grid->columnCount() - 1)->text(),
+             QString("512\n1"));
+    QCOMPARE(grid->currentRow(), 100 / grid->columnCount());
+  }
   void receiveAndEdit() {
     // Exact duplicate unicast binds are intentionally indeterminate on Windows.
     // Keep the receive regression isolated there; exercise Unix port sharing
@@ -151,6 +266,7 @@ private slots:
           action->setChecked(false);
       }
       w.findChild<QAction *>("outputToggle")->setChecked(false);
+      w.findChild<QAction *>("activeChannelsOnly")->setChecked(true);
       w.findChild<QPushButton *>("listen")->setChecked(true);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
     }
@@ -175,6 +291,7 @@ private slots:
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
       QVERIFY(!w.findChild<QAction *>("outputToggle")->isChecked());
+      QVERIFY(w.findChild<QAction *>("activeChannelsOnly")->isChecked());
       for (auto action : w.findChildren<QAction *>()) {
         if (action->text() == "Network diagnostics")
           QVERIFY(action->isChecked());

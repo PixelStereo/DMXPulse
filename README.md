@@ -20,6 +20,8 @@
 
 Read a channel number and its value without opening another window. Every tile follows the actual received level: **black at 0, white at 255**, with text that stays readable across the range.
 
+Switch on **Active channels only** to focus on received levels above zero. The view keeps the original DMX addresses, updates as levels change, and remembers your preference.
+
 | Monitor | Inspect | Send |
 |:---|:---|:---|
 | See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Shape levels with a rotary encoder, fine steps or an exact value. |

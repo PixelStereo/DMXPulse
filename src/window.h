@@ -57,6 +57,11 @@ private:
   QPushButton *listen, *send;
   QListWidget *sources;
   QTableWidget *grid;
+  QStackedWidget *gridStack;
+  QLabel *emptyGrid;
+  QAction *activeChannelsOnly;
+  QVector<int> visibleChannels;
+  void syncChannelSelection();
   QLabel *status, *metrics, *signal, *universeTitle, *inputValue;
   QSplitter *split;
   int columns = 32;

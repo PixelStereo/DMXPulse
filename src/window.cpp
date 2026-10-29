@@ -7,6 +7,8 @@ public:
   using QStyledItemDelegate::QStyledItemDelegate;
   void paint(QPainter *p, const QStyleOptionViewItem &option,
              const QModelIndex &index) const override {
+    if (!index.data(Qt::UserRole).isValid())
+      return;
     p->save();
     p->fillRect(option.rect, index.data(Qt::BackgroundRole).value<QBrush>());
     const auto textColor =
@@ -269,6 +271,19 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   legendLayout->addWidget(white);
   canvasHeader->addWidget(legend);
   canvasLayout->addLayout(canvasHeader);
+  activeChannelsOnly = new QAction("Active channels only", this);
+  activeChannelsOnly->setObjectName("activeChannelsOnly");
+  activeChannelsOnly->setCheckable(true);
+  activeChannelsOnly->setShortcut(QKeySequence("Ctrl+Shift+A"));
+  activeChannelsOnly->setToolTip(
+      "Show only received channels above zero, keeping their DMX addresses");
+  auto filterButton = new QToolButton;
+  filterButton->setObjectName("activeChannelsButton");
+  filterButton->setDefaultAction(activeChannelsOnly);
+  auto filterRow = new QHBoxLayout;
+  filterRow->addWidget(filterButton);
+  filterRow->addStretch();
+  canvasLayout->addLayout(filterRow);
   grid = new QTableWidget(512 / columns, columns);
   grid->setObjectName("channelGrid");
   grid->horizontalHeader()->hide();
@@ -289,12 +304,28 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   grid->setSelectionMode(QAbstractItemView::SingleSelection);
   grid->setSelectionBehavior(QAbstractItemView::SelectItems);
   for (int i = 0; i < 512; ++i) {
+    visibleChannels.append(i);
     auto item = new QTableWidgetItem;
+    item->setData(Qt::UserRole, i + 1);
     item->setTextAlignment(Qt::AlignCenter);
     grid->setItem(i / columns, i % columns, item);
   }
   grid->setCurrentCell(0, 0);
-  canvasLayout->addWidget(grid, 1);
+  gridStack = new QStackedWidget;
+  gridStack->addWidget(grid);
+  emptyGrid = new QLabel;
+  emptyGrid->setObjectName("emptyChannelGrid");
+  emptyGrid->setAlignment(Qt::AlignCenter);
+  emptyGrid->setWordWrap(true);
+  gridStack->addWidget(emptyGrid);
+  canvasLayout->addWidget(gridStack, 1);
+  connect(activeChannelsOnly, &QAction::toggled, this, [this](bool active) {
+    grid->verticalHeader()->setSectionResizeMode(
+        compact || active ? QHeaderView::Fixed : QHeaderView::Stretch);
+    if (active || compact)
+      grid->verticalHeader()->setDefaultSectionSize(48);
+    render();
+  });
   split->addWidget(canvas);
   split->setStretchFactor(1, 1);
   split->setSizes({210, 940, 290});
@@ -389,6 +420,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   status->setObjectName("muted");
   layout->addWidget(status);
   auto view = menuBar()->addMenu("View");
+  view->addAction(activeChannelsOnly);
+  view->addSeparator();
   showSources = view->addAction("Universes");
   showSources->setCheckable(true);
   showSources->setChecked(true);
@@ -489,6 +522,10 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QListWidget::item:selected { background:#303a36; color:#f3fff9; }
     QFrame#outputPanel { background:#1e2021; border:1px solid #343739; border-radius:7px; }
     QToolButton { border:0; padding:2px; color:#b8bcbe; }
+    QToolButton#activeChannelsButton { border:1px solid #404346; border-radius:5px; padding:6px 10px; }
+    QToolButton#activeChannelsButton:hover { background:#292c2e; }
+    QToolButton#activeChannelsButton:checked { background:#314c44; border-color:#6e9b8c; color:#ebfff6; }
+    QLabel#emptyChannelGrid { color:#96999d; border:1px solid #36393b; border-radius:5px; padding:20px; }
     QLabel#diagnostics { background:#202223; padding:10px; color:#a9afb2; border-radius:5px; }
     QMenuBar { background:#171819; } QMenu { background:#242628; } QMenu::item:selected { background:#3c4842; }
   )");
@@ -553,19 +590,22 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
             render();
           });
   connect(grid, &QTableWidget::cellClicked, this,
-          [this](int r, int c) { channel->setValue(r * columns + c + 1); });
+          [this](int r, int c) {
+            if (auto item = grid->item(r, c))
+              if (item->data(Qt::UserRole).isValid())
+                channel->setValue(item->data(Qt::UserRole).toInt());
+          });
   connect(channel, &QSpinBox::valueChanged, this, [this] {
     updating = true;
     value->setValue(quint8(output[channel->value() - 1]));
     encoder->setValue(value->value());
     updating = false;
-    grid->setCurrentCell((channel->value() - 1) / columns,
-                         (channel->value() - 1) % columns);
+    syncChannelSelection();
   });
   connect(grid->selectionModel(), &QItemSelectionModel::currentChanged, this,
           [this](const QModelIndex &current) {
-            if (current.isValid())
-              channel->setValue(current.row() * columns + current.column() + 1);
+            if (current.isValid() && current.data(Qt::UserRole).isValid())
+              channel->setValue(current.data(Qt::UserRole).toInt());
           });
   connect(value, &QSpinBox::valueChanged, this, [this](int v) {
     if (!updating)
@@ -942,6 +982,16 @@ void Window::prepareOutput() {
     if (!overrides.testBit(ch))
       output[ch] = base[ch];
 }
+void Window::syncChannelSelection() {
+  const QSignalBlocker blocker(grid->selectionModel());
+  const int position = visibleChannels.indexOf(channel->value() - 1);
+  if (position < 0) {
+    grid->clearSelection();
+    grid->setCurrentIndex(QModelIndex());
+  } else {
+    grid->setCurrentCell(position / columns, position % columns);
+  }
+}
 void Window::render() {
   auto now = clock.elapsed();
   for (auto i = streams.begin(); i != streams.end();)
@@ -1035,13 +1085,59 @@ void Window::render() {
     rx = heldInput.value(current);
   live = live && listen->isChecked();
   const bool hasInput = rx.size() == 512;
+  const bool activeOnly = activeChannelsOnly->isChecked();
+  const int displayColumns = compact ? 8 : activeOnly ? 16 : 32;
   int active = 0;
+  QVector<int> shown;
+  shown.reserve(512);
   for (int i = 0; i < 512; ++i) {
-    int receivedValue = hasInput ? quint8(rx[i]) : -1;
-    int out = quint8(output[i]);
-    if (receivedValue > 0)
+    const bool aboveZero = hasInput && quint8(rx[i]) > 0;
+    if (aboveZero)
       ++active;
-    auto item = grid->item(i / columns, i % columns);
+    if (!activeOnly || aboveZero)
+      shown.append(i);
+  }
+  if (shown != visibleChannels || columns != displayColumns) {
+    // Repack only when channel membership changes, preserving the inspector's
+    // real DMX address even when that channel disappears from the filtered view.
+    const QSignalBlocker blocker(grid->selectionModel());
+    grid->setUpdatesEnabled(false);
+    visibleChannels = shown;
+    columns = displayColumns;
+    grid->setColumnCount(columns);
+    grid->setRowCount((shown.size() + columns - 1) / columns);
+    for (int position = 0; position < grid->rowCount() * columns; ++position) {
+      auto item = grid->item(position / columns, position % columns);
+      if (!item) {
+        item = new QTableWidgetItem;
+        item->setTextAlignment(Qt::AlignCenter);
+        grid->setItem(position / columns, position % columns, item);
+      }
+      if (position < shown.size()) {
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        item->setData(Qt::UserRole, shown[position] + 1);
+      } else {
+        item->setFlags(Qt::NoItemFlags);
+        item->setData(Qt::UserRole, QVariant());
+        item->setText({});
+        item->setToolTip({});
+        item->setBackground(Qt::black);
+      }
+    }
+    paintedInput.fill(-2);
+    paintedOutput.fill(-2);
+    syncChannelSelection();
+    grid->setUpdatesEnabled(true);
+  }
+  emptyGrid->setText(hasInput ? "No channels above zero in this universe."
+                              : "Waiting for received DMX data.");
+  gridStack->setCurrentWidget(shown.isEmpty() ? static_cast<QWidget *>(emptyGrid)
+                                             : static_cast<QWidget *>(grid));
+  for (int position = 0; position < shown.size(); ++position) {
+    const int i = shown[position];
+    const int receivedValue = hasInput ? quint8(rx[i]) : -1;
+    const int out = quint8(output[i]);
+    auto item = grid->item(position / columns, position % columns);
     if (paintedInput[i] != receivedValue) {
       item->setText(QString("%1\n%2").arg(i + 1).arg(
           receivedValue < 0 ? QString("—") : QString::number(receivedValue)));
@@ -1212,8 +1308,9 @@ void Window::restoreSettings() {
   if (savedOutput.size() == 512)
     output = savedOutput;
   channel->setValue(s.value("view/channel", 1).toInt());
-  grid->setCurrentCell((channel->value() - 1) / columns,
-                       (channel->value() - 1) % columns);
+  syncChannelSelection();
+  activeChannelsOnly->setChecked(
+      s.value("view/activeChannelsOnly", false).toBool());
   showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
   showSources->setChecked(compact ? true
                                   : s.value("view/sources", true).toBool());
@@ -1284,6 +1381,7 @@ void Window::saveSettings() {
     mask[i] = overrides.testBit(i) ? 1 : 0;
   s.setValue("output/overrides", mask);
   s.setValue("view/channel", channel->value());
+  s.setValue("view/activeChannelsOnly", activeChannelsOnly->isChecked());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());
   s.setValue("view/output", outputToggle->isChecked());

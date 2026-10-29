@@ -17,6 +17,8 @@ Choose the correct interface, Art-Net or sACN, and a universe. Click **Start lis
 
 Each channel has its number above and its received value below. The background follows the value from black (0) to white (255). **—** means no data has been received for the selected protocol and universe.
 
+Enable **Active channels only** above the grid (also in **View**, shortcut **Ctrl+Shift+A**) to show only received levels above zero. Channels are grouped in DMX address order and keep their original numbers. The grid updates as levels change; an empty message appears when no channels qualify. Turning the filter off restores all 512 channels. This display preference is saved for the next launch and does not affect output or the network data being received.
+
 Input is marked stale after 2.5 seconds without a new packet. Last values remain visible; a stale source disappears after 60 seconds. Selecting a different universe does not convert output values into input.
 
 Desktop users can click a channel or navigate with the arrow keys. The universe list stays on the left and the output encoder and transmission controls stay on the right. There are no workspace tabs. On smaller mobile screens, the panels stack vertically in a scrollable workspace.
