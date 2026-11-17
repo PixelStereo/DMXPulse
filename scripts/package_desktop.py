@@ -99,7 +99,7 @@ def windows(build, output):
         f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "packaging/windows.nsi")
     # What users get is the installer: install it silently somewhere clean and start what it installed
     with tempfile.TemporaryDirectory() as clean:
-        run(installer, "/S", f"/D={clean}")
+        run(installer, "/S", "/CurrentUser", f"/D={clean}")
         smoke(Path(clean) / "app/DMXPulse.exe")
     shutil.rmtree(stage)
 
