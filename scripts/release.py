@@ -9,13 +9,13 @@ import zipfile
 from package_ios import validate_ipa
 
 REQUIRED = (
-    "DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg",
-    "DMXPulse-windows-x86_64.zip", "DMXPulse-linux-amd64.deb",
+    "DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
+    "DMXPulse-windows-x86_64-Setup.exe", "DMXPulse-linux-amd64.deb",
     "DMXPulse-raspberry-arm64.deb", "DMXPulse-android-arm64.apk",
 )
 
 IOS_PACKAGES = ("DMXPulse-ios-unsigned.ipa", "DMXPulse-ios.ipa")
-OBSOLETE = ("DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
+OBSOLETE = ("DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg", "DMXPulse-windows-x86_64.zip",
             "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip",
             "DMXPulse-source.tar.gz", "release.json", "SHA256SUMS",
             "Android-NOTICES.md", "DMXPulse-android-arm64.apk.idsig")
@@ -66,20 +66,13 @@ def verify(directory):
                     }.issubset(names):
                         raise ValueError("Signed IPA is missing its profile/signature resources")
                 if path.suffix == ".zip":
-                    expected = "DMXPulse/DMXPulse.exe"
+                    expected = "DMXPulse.app/Contents/MacOS/DMXPulse"
                     if expected not in names:
                         raise ValueError("Missing application executable in " + name)
-                    if "windows" in name and "DMXPulse/platforms/qwindows.dll" not in names:
-                        raise ValueError("Missing Windows Qt platform plugin")
                 if path.suffix == ".apk" and not any(n.startswith("lib/arm64-v8a/") and "DMXPulse" in n for n in names):
                     raise ValueError("Missing ARM64 Android application library")
-        elif path.suffix == ".dmg":
-            with path.open("rb") as image:
-                if path.stat().st_size < 512:
-                    raise ValueError("Invalid macOS disk image: " + name)
-                image.seek(-512, 2)
-                if image.read(4) != b"koly":
-                    raise ValueError("Invalid macOS UDIF trailer: " + name)
+        elif path.suffix == ".exe" and path.read_bytes()[:2] != b"MZ":
+            raise ValueError("Invalid Windows installer: " + name)
         elif path.suffix == ".deb" and path.read_bytes()[:8] != b"!<arch>\n":
             raise ValueError("Invalid Debian package: " + name)
     return [directory / name for name in sorted((*REQUIRED, *ios))]

@@ -15,7 +15,7 @@ class ReleaseTests(unittest.TestCase):
             numeric_version("v999999.0.0", "1.1.0")
     def test_no_partial_release(self):
         with tempfile.TemporaryDirectory() as directory:
-            Path(directory, "DMXPulse-macos-arm64.dmg").write_bytes(b"broken")
+            Path(directory, "DMXPulse-macos-arm64.zip").write_bytes(b"broken")
             with self.assertRaisesRegex(ValueError, "Missing release assets"):
                 verify(directory)
 
@@ -28,14 +28,13 @@ class PackageSetTests(unittest.TestCase):
         root = Path(directory)
         for name in REQUIRED:
             path = root / name
-            if name.endswith('.dmg'):
-                path.write_bytes(b'disk data' + b'koly' + b'\0' * 508)
+            if name.endswith('.exe'):
+                path.write_bytes(b'MZ installer')
             elif name.endswith('.deb'):
                 path.write_bytes(b'!<arch>\npackage')
             elif name.endswith('.zip'):
                 with zipfile.ZipFile(path, 'w') as archive:
-                    archive.writestr('DMXPulse/DMXPulse.exe', b'executable')
-                    archive.writestr('DMXPulse/platforms/qwindows.dll', b'plugin')
+                    archive.writestr('DMXPulse.app/Contents/MacOS/DMXPulse', b'executable')
             elif name.endswith('.apk'):
                 with zipfile.ZipFile(path, 'w') as archive:
                     for member in ('AndroidManifest.xml', 'classes.dex', 'lib/arm64-v8a/libDMXPulse.so'):
@@ -48,7 +47,7 @@ class PackageSetTests(unittest.TestCase):
             archive.writestr('Payload/DMXPulse.app/DMXPulse', b'executable')
         return root
 
-    def test_complete_dmg_and_ipa_set(self):
+    def test_complete_zip_installer_and_ipa_set(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.make_release(directory)
             files = verify(root)
@@ -60,15 +59,15 @@ class PackageSetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'one iOS device IPA'):
                 verify(root)
 
-    def test_dmg_trailer_and_obsolete_assets(self):
+    def test_installer_signature_and_obsolete_assets(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.make_release(directory)
-            (root / 'DMXPulse-macos-arm64.zip').write_bytes(b'old download')
+            (root / 'DMXPulse-macos-arm64.dmg').write_bytes(b'old download')
             with self.assertRaisesRegex(ValueError, 'Obsolete'):
                 verify(root)
-            (root / 'DMXPulse-macos-arm64.zip').unlink()
-            (root / 'DMXPulse-macos-arm64.dmg').write_bytes(b'corrupt')
-            with self.assertRaisesRegex(ValueError, 'disk image'):
+            (root / 'DMXPulse-macos-arm64.dmg').unlink()
+            (root / 'DMXPulse-windows-x86_64-Setup.exe').write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'Windows installer'):
                 verify(root)
 
     def test_exactly_one_ipa_and_signing_metadata(self):
@@ -93,8 +92,8 @@ class PackageSetTests(unittest.TestCase):
                 'Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
                 'DMXPulse-windows-x86_64.zip', 'custom-user-file.zip'], directory),
                 ['Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
-                 'DMXPulse-ios.ipa', 'DMXPulse-macos-arm64.zip',
-                 'DMXPulse-source.tar.gz', 'SHA256SUMS', 'release.json'])
+                 'DMXPulse-ios.ipa', 'DMXPulse-macos-arm64.dmg',
+                 'DMXPulse-source.tar.gz', 'DMXPulse-windows-x86_64.zip', 'SHA256SUMS', 'release.json'])
 
 
 if __name__ == "__main__":

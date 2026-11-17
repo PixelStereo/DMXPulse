@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Stage Qt runtime dependencies, smoke-test, and archive desktop packages."""
+"""Stage Qt runtime dependencies, smoke-test, and package desktop downloads: a zip on macOS, an installer on Windows."""
 import argparse
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import zipfile
 import stat
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,9 +65,16 @@ def macos(build, output, arch):
     run("codesign", "--force", "--deep", "--sign", "-", app)
     run("codesign", "--verify", "--deep", "--strict", app)
     smoke(app / "Contents/MacOS/DMXPulse")
-    (stage / "Applications").symlink_to("/Applications")
-    run("hdiutil", "create", "-volname", "DMXPulse", "-srcfolder", stage, "-ov", "-format", "UDZO", output / f"DMXPulse-macos-{arch}.dmg")
-    run("hdiutil", "verify", output / f"DMXPulse-macos-{arch}.dmg")
+    # ditto, not Python's zipfile: it keeps the symlinks inside the frameworks, which the signature depends on
+    archive = output / f"DMXPulse-macos-{arch}.zip"
+    archive.unlink(missing_ok=True)
+    run("ditto", "-c", "-k", "--keepParent", app, archive)
+    # What users get is the zip, so the checks run on its extracted content
+    with tempfile.TemporaryDirectory() as check:
+        run("ditto", "-x", "-k", archive, check)
+        extracted = Path(check) / "DMXPulse.app"
+        run("codesign", "--verify", "--deep", "--strict", extracted)
+        smoke(extracted / "Contents/MacOS/DMXPulse")
     shutil.rmtree(stage)
 
 def windows(build, output):
@@ -85,10 +92,15 @@ def windows(build, output):
         shutil.copy2(dll, stage)
     notices(stage)
     smoke(stage / "DMXPulse.exe")
-    with zipfile.ZipFile(output / "DMXPulse-windows-x86_64.zip", "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(stage.rglob("*")):
-            if path.is_file():
-                archive.write(path, path.relative_to(output))
+    version = os.environ.get("APP_VERSION", "0.0.0")
+    installer = output / "DMXPulse-windows-x86_64-Setup.exe"
+    makensis = shutil.which("makensis") or str(Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "NSIS/makensis.exe")
+    run(makensis, "/DPRODUCT=DMXPulse", f"/DAPP_VERSION={version}", "/DAPP_EXE=DMXPulse.exe",
+        f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "packaging/windows.nsi")
+    # What users get is the installer: install it silently somewhere clean and start what it installed
+    with tempfile.TemporaryDirectory() as clean:
+        run(installer, "/S", f"/D={clean}")
+        smoke(Path(clean) / "app/DMXPulse.exe")
     shutil.rmtree(stage)
 
 def main():

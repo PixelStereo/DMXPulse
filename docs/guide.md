@@ -4,7 +4,7 @@
 
 Get the package matching your device from [Releases](https://github.com/PixelStereo/DMXPulse/releases).
 
-- **macOS:** download the DMG for Apple Silicon (`arm64`) or Intel (`x86_64`), open it, and drag DMXPulse to Applications. The package includes Qt. Current automated packages are ad-hoc signed, not notarized; macOS may require you to approve opening the application in Privacy & Security.
+- **macOS:** download the zip for Apple Silicon (`arm64`) or Intel (`x86_64`), unzip it, and drag DMXPulse to Applications. The package includes Qt. Current automated packages are ad-hoc signed, not notarized; macOS may require you to approve opening the application in Privacy & Security.
 - **Windows:** extract the whole ZIP and launch `DMXPulse.exe`. Keep the DLLs and plugin folders alongside it.
 - **Linux:** install the `amd64.deb` with your graphical package installer or `sudo apt install ./DMXPulse-linux-amd64.deb`. Dependencies are installed by the package manager. A graphical desktop is required.
 - **Raspberry Pi:** use 64-bit Raspberry Pi OS Bookworm with a graphical desktop and install the `arm64.deb`. This package is not for 32-bit Raspberry Pi OS.

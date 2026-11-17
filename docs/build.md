@@ -41,7 +41,7 @@ For manual builds and distribution, use the matching Qt macOS kit and architectu
 python3 scripts/package_desktop.py macos --arch arm64
 ```
 
-The packager runs `macdeployqt`, rejects non-system absolute runtime dependencies, adds notices, applies and verifies an ad-hoc signature, launches a temporary-settings smoke test, and creates one verified DMG for the selected architecture. It does not notarize or apply a Developer ID signature. The official Qt SDK is used in CI to avoid relying on unrelated package-manager runtimes.
+The packager runs `macdeployqt`, rejects non-system absolute runtime dependencies, adds notices, applies and verifies an ad-hoc signature, launches a temporary-settings smoke test, and creates one zip (made with `ditto`, then extracted, signature-checked and launched) for the selected architecture. It does not notarize or apply a Developer ID signature. The official Qt SDK is used in CI to avoid relying on unrelated package-manager runtimes.
 
 ### Windows
 
@@ -147,7 +147,7 @@ Do not move published tags. Numeric tags (`v1.2`, `1.2.3`, `v1.2.3-rc.1`) determ
 
 Required release assets:
 
-- One macOS ARM64 DMG and one macOS x86-64 DMG.
+- One macOS ARM64 zip and one macOS x86-64 zip, and one Windows installer.
 - Windows x86-64 portable ZIP.
 - Linux AMD64 and Raspberry Pi ARM64 DEBs.
 - Android ARM64 signed APK.

@@ -36,8 +36,8 @@ Packages are attached to [tagged releases](https://github.com/PixelStereo/DMXPul
 
 | Device | Package |
 |:---|:---|
-| Mac · Apple Silicon or Intel | One `.dmg` per architecture, with the Qt runtime included |
-| Windows · 64-bit | Portable `.zip`, with runtime dependencies |
+| Mac · Apple Silicon or Intel | One `.zip` per architecture, with the Qt runtime included |
+| Windows · 64-bit | `-Setup.exe` installer (no administrator rights), with runtime dependencies |
 | Linux · Debian 12 / compatible Ubuntu desktop | `amd64.deb` |
 | Raspberry Pi · 64-bit Raspberry Pi OS Bookworm desktop | `arm64.deb` |
 | Android · 64-bit, Android 9+ | Installable `.apk`, with a touch-oriented workspace |
