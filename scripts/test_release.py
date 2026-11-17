@@ -34,7 +34,7 @@ class PackageSetTests(unittest.TestCase):
                 path.write_bytes(b'!<arch>\npackage')
             elif name.endswith('.zip'):
                 with zipfile.ZipFile(path, 'w') as archive:
-                    archive.writestr('DMXPulse.app/Contents/MacOS/DMXPulse', b'executable')
+                    archive.writestr('DMXPulse 1.2.3+4.app/Contents/MacOS/DMXPulse', b'executable')
             elif name.endswith('.apk'):
                 with zipfile.ZipFile(path, 'w') as archive:
                     for member in ('AndroidManifest.xml', 'classes.dex', 'lib/arm64-v8a/libDMXPulse.so'):

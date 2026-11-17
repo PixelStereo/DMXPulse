@@ -5,10 +5,19 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import stat
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "third_party/pxs/scripts"))
+from build_id import display_version  # noqa: E402  the version the application carries in its name
+
+
+def app_name():
+    """"DMXPulse 0.2.1" for a release, "DMXPulse 0.2.1+3" three commits after it, "DMXPulse 0.2.1+3+" with changes."""
+    fallback = (ROOT / "VERSION").read_text().strip()
+    return f"DMXPulse {display_version(ROOT, os.environ.get('RELEASE_TAG') or None, fallback)}"
 
 def run(*args, **kwargs):
     subprocess.run([str(a) for a in args], check=True, **kwargs)
@@ -33,7 +42,8 @@ def smoke(executable):
 def macos(build, output, arch):
     stage = output / "stage-macos"
     stage.mkdir(parents=True, exist_ok=True)
-    app = stage / "DMXPulse.app"
+    name = app_name()
+    app = stage / f"{name}.app"  # the executable inside keeps its name; the bundle carries the version
     shutil.copytree(build / "DMXPulse.app", app, symlinks=True, dirs_exist_ok=True)
     result = subprocess.run(["macdeployqt", str(app), "-always-overwrite"], text=True, capture_output=True)
     print(result.stdout)
@@ -72,7 +82,7 @@ def macos(build, output, arch):
     # What users get is the zip, so the checks run on its extracted content
     with tempfile.TemporaryDirectory() as check:
         run("ditto", "-x", "-k", archive, check)
-        extracted = Path(check) / "DMXPulse.app"
+        extracted = Path(check) / f"{name}.app"
         run("codesign", "--verify", "--deep", "--strict", extracted)
         smoke(extracted / "Contents/MacOS/DMXPulse")
     shutil.rmtree(stage)
@@ -82,6 +92,8 @@ def windows(build, output):
     stage.mkdir(parents=True, exist_ok=True)
     shutil.copy2(build / "DMXPulse.exe", stage)
     run("windeployqt", "--release", "--no-translations", "--no-compiler-runtime", stage / "DMXPulse.exe")
+    name = app_name()
+    (stage / "DMXPulse.exe").rename(stage / f"{name}.exe")  # the version is in the name, as on macOS
     redist = os.environ.get("VCToolsRedistDir")
     if not redist:
         raise RuntimeError("VCToolsRedistDir is unavailable; run in the MSVC developer environment")
@@ -91,16 +103,16 @@ def windows(build, output):
     for dll in crt_dirs[-1].glob("*.dll"):
         shutil.copy2(dll, stage)
     notices(stage)
-    smoke(stage / "DMXPulse.exe")
+    smoke(stage / f"{name}.exe")
     version = os.environ.get("APP_VERSION", "0.0.0")
     installer = output / "DMXPulse-windows-x86_64-Setup.exe"
     makensis = shutil.which("makensis") or str(Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "NSIS/makensis.exe")
-    run(makensis, "/DPRODUCT=DMXPulse", f"/DAPP_VERSION={version}", "/DAPP_EXE=DMXPulse.exe",
-        f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "packaging/windows.nsi")
+    run(makensis, "/DPRODUCT=DMXPulse", f"/DAPP_VERSION={name.removeprefix('DMXPulse ')}", f"/DAPP_EXE={name}.exe",
+        f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "third_party/pxs/packaging/windows.nsi")
     # What users get is the installer: install it silently somewhere clean and start what it installed
     with tempfile.TemporaryDirectory() as clean:
         run(installer, "/S", "/CurrentUser", f"/D={clean}")
-        smoke(Path(clean) / "app/DMXPulse.exe")
+        smoke(Path(clean) / "app" / f"{name}.exe")
     shutil.rmtree(stage)
 
 def main():

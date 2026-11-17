@@ -94,6 +94,9 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags: the version in the application's name counts commits since the last release
+          submodules: true # third_party/pxs
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -109,6 +112,7 @@ jobs:
       - name: Bundle, verify and smoke-test packages
         env:
           APP_ARCH: ${{ matrix.arch }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: python3 scripts/package_desktop.py macos --arch "$APP_ARCH"
       - uses: actions/upload-artifact@v4
         with:
@@ -133,6 +137,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags: the version in the application's name counts commits since the last release
+          submodules: true # third_party/pxs
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: jurplel/install-qt-action@v4
         with:
@@ -155,7 +162,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package Qt and MSVC runtime, build and start the installer
         env:
-          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: python scripts/package_desktop.py windows
       - uses: actions/upload-artifact@v4
         with:
