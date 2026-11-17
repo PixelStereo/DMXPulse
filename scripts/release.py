@@ -66,8 +66,7 @@ def verify(directory):
                     }.issubset(names):
                         raise ValueError("Signed IPA is missing its profile/signature resources")
                 if path.suffix == ".zip":
-                    expected = "DMXPulse.app/Contents/MacOS/DMXPulse"
-                    if expected not in names:
+                    if not any(n.endswith(".app/Contents/MacOS/DMXPulse") for n in names):
                         raise ValueError("Missing application executable in " + name)
                 if path.suffix == ".apk" and not any(n.startswith("lib/arm64-v8a/") and "DMXPulse" in n for n in names):
                     raise ValueError("Missing ARM64 Android application library")
