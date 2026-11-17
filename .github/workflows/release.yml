@@ -149,7 +149,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ctest --test-dir build --output-on-failure --timeout 90
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package Qt and MSVC runtime
+      - name: Install NSIS
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Qt and MSVC runtime, build and start the installer
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
         run: python scripts/package_desktop.py windows
       - uses: actions/upload-artifact@v4
         with:
