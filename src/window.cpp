@@ -443,7 +443,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(about, &QAction::triggered, this, [this] {
     QMessageBox::about(this, "About DMXPulse",
                        "<b>DMXPulse</b><br>Art-Net and sACN network DMX "
-                       "monitor.<br>PixelStereo · MIT license<br><a "
+                       "monitor.<br>PixelStereo · AGPL-3.0 license<br><a "
                        "href=\"https://github.com/PixelStereo/"
                        "DMXPulse\">Project and source code</a>");
   });

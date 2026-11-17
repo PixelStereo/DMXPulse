@@ -10,7 +10,7 @@
 </p>
 <p align="center">
   <a href="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml"><img alt="Build and release" src="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml/badge.svg"></a>
-  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-8aa99a">
+  <img alt="License AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-8aa99a">
   <img alt="Protocols Art-Net and sACN" src="https://img.shields.io/badge/Art--Net%20%C2%B7%20sACN-network%20DMX-333a37">
 </p>
 
@@ -70,6 +70,6 @@ Need a hand? Read the [user guide](docs/guide.md) or [report an issue](https://g
 
 ---
 
-Made by **PixelStereo** · [MIT license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
+Made by **PixelStereo** · [AGPL-3.0 license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 Art-Net™ Designed by and Copyright Artistic Licence.
