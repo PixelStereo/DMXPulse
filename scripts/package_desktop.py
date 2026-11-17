@@ -81,7 +81,7 @@ def windows(build, output):
     stage = output / "DMXPulse"
     stage.mkdir(parents=True, exist_ok=True)
     shutil.copy2(build / "DMXPulse.exe", stage)
-    run("windeployqt", "--release", "--no-translations", "--compiler-runtime", stage / "DMXPulse.exe")
+    run("windeployqt", "--release", "--no-translations", "--no-compiler-runtime", stage / "DMXPulse.exe")
     redist = os.environ.get("VCToolsRedistDir")
     if not redist:
         raise RuntimeError("VCToolsRedistDir is unavailable; run in the MSVC developer environment")
