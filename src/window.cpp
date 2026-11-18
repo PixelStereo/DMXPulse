@@ -1,3 +1,4 @@
+#include <pxs/Theme.h>
 #include "window.h"
 #include "platform.h"
 namespace {
@@ -499,36 +500,40 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
                                     state == Qt::ApplicationSuspended))
               saveSettings();
           });
-  setStyleSheet(R"(
-    QWidget { background:#171819; color:#e5e5e5; font-size:12px; }
+  // The graphite look shared by every Pixel Stereo application (palette, Fusion, check boxes, tabs). This window's own
+  // structure keeps its scope: written with the same colour tokens, on the window
+  const pxs::Palette palette = pxs::graphite();
+  pxs::apply(*static_cast<QApplication *>(QCoreApplication::instance()), palette);
+  setStyleSheet(pxs::resolve(QStringLiteral(R"(
+    QWidget { background:@base; color:@text; font-size:12px; }
     QLabel, QWidget#field { background:transparent; }
-    QLabel#title { font-size:23px; font-weight:600; color:#fafafa; }
-    QLabel#section { font-size:13px; font-weight:600; color:#ededed; }
-    QLabel#muted { color:#96999d; }
+    QLabel#title { font-size:23px; font-weight:600; color:@text; }
+    QLabel#section { font-size:13px; font-weight:600; color:@text; }
+    QLabel#muted { color:@muted; }
     QLabel#reading { font-size:22px; font-weight:600; }
-    QLabel#signal { background:#242628; border-radius:10px; padding:6px 12px; color:#b7babe; }
-    QLabel#signal[inputState="live"] { background:#283e34; color:#c2e5d3; }
-    QLabel#signal[inputState="stale"] { background:#443c2c; color:#e0c998; }
-    QComboBox,QSpinBox,QLineEdit { background:#222426; border:1px solid #393c3f; border-radius:5px; padding:7px; min-height:17px; selection-background-color:#3c665e; }
-    QComboBox:focus,QSpinBox:focus,QLineEdit:focus { border-color:#9cb8af; }
-    QPushButton { background:#292c2e; border:1px solid #404346; border-radius:5px; padding:8px 12px; }
-    QPushButton:hover { background:#35393b; }
-    QPushButton:checked { background:#314c44; border-color:#6e9b8c; color:#ebfff6; }
-    QPushButton#transmit:checked { background:#54452b; border-color:#b5965c; color:#fff0cf; }
-    QWidget:disabled { color:#686c70; }
-    QTableWidget { gridline-color:#303234; border:1px solid #36393b; background:#000; }
-    QListWidget { background:#1d1f20; border:1px solid #333638; border-radius:5px; outline:0; }
-    QListWidget::item { padding:10px 8px; border-bottom:1px solid #303234; }
-    QListWidget::item:selected { background:#303a36; color:#f3fff9; }
-    QFrame#outputPanel { background:#1e2021; border:1px solid #343739; border-radius:7px; }
-    QToolButton { border:0; padding:2px; color:#b8bcbe; }
-    QToolButton#activeChannelsButton { border:1px solid #404346; border-radius:5px; padding:6px 10px; }
-    QToolButton#activeChannelsButton:hover { background:#292c2e; }
-    QToolButton#activeChannelsButton:checked { background:#314c44; border-color:#6e9b8c; color:#ebfff6; }
-    QLabel#emptyChannelGrid { color:#96999d; border:1px solid #36393b; border-radius:5px; padding:20px; }
-    QLabel#diagnostics { background:#202223; padding:10px; color:#a9afb2; border-radius:5px; }
-    QMenuBar { background:#171819; } QMenu { background:#242628; } QMenu::item:selected { background:#3c4842; }
-  )");
+    QLabel#signal { background:@window; border-radius:10px; padding:6px 12px; color:@muted; }
+    QLabel#signal[inputState="live"] { background:@button; color:#c2e5d3; }
+    QLabel#signal[inputState="stale"] { background:@midlight; color:#e0c998; }
+    QComboBox,QSpinBox,QLineEdit { background:@window; border:1px solid @midlight; border-radius:5px; padding:7px; min-height:17px; selection-background-color:@light; }
+    QComboBox:focus,QSpinBox:focus,QLineEdit:focus { border-color:@focus; }
+    QPushButton { background:@button; border:1px solid @midlight; border-radius:5px; padding:8px 12px; }
+    QPushButton:hover { background:@midlight; }
+    QPushButton:checked { background:@fill; border-color:@focus; color:@text; }
+    QPushButton#transmit:checked { background:@midlight; border-color:#b5965c; color:#fff0cf; }
+    QWidget:disabled { color:@border; }
+    QTableWidget { gridline-color:@border; border:1px solid @midlight; background:#000; }
+    QListWidget { background:@base; border:1px solid @midlight; border-radius:5px; outline:0; }
+    QListWidget::item { padding:10px 8px; border-bottom:1px solid @midlight; }
+    QListWidget::item:selected { background:@light; color:@text; }
+    QFrame#outputPanel { background:@base; border:1px solid @midlight; border-radius:7px; }
+    QToolButton { border:0; padding:2px; color:@muted; }
+    QToolButton#activeChannelsButton { border:1px solid @midlight; border-radius:5px; padding:6px 10px; }
+    QToolButton#activeChannelsButton:hover { background:@button; }
+    QToolButton#activeChannelsButton:checked { background:@fill; border-color:@focus; color:@text; }
+    QLabel#emptyChannelGrid { color:@muted; border:1px solid @midlight; border-radius:5px; padding:20px; }
+    QLabel#diagnostics { background:@window; padding:10px; color:@muted; border-radius:5px; }
+    QMenuBar { background:@base; } QMenu { background:@window; } QMenu::item:selected { background:@light; }
+  )"), palette));
   if (compact)
     setStyleSheet(styleSheet() +
                   "QComboBox,QSpinBox,QLineEdit,QPushButton{min-height:26px;"

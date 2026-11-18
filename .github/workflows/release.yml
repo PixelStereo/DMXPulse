@@ -51,6 +51,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git build-essential cmake ninja-build qt6-base-dev libqt6opengl6-dev libgl1-mesa-dev dpkg-dev file python3
       - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/pxs (the look)
       - name: Build and test natively
         env:
           APP_VERSION: ${{ needs.metadata.outputs.version }}
@@ -186,6 +188,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/pxs (the look)
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -228,6 +232,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/pxs (the look)
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -269,6 +275,8 @@ jobs:
       APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/pxs (the look)
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -311,6 +319,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # third_party/pxs (the look)
       - name: Dependencies
         run: sudo apt-get update && sudo apt-get install -y qt6-base-dev libqt6opengl6-dev ninja-build
       - name: Address and undefined-behavior checks
