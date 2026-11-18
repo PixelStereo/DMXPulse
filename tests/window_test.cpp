@@ -5,23 +5,13 @@ class WindowTest : public QObject {
 private slots:
   void activeChannelsFilter_data() {
     QTest::addColumn<bool>("sacn");
-    QTest::addColumn<bool>("compact");
-    QTest::newRow("artnet-desktop") << false << false;
-    QTest::newRow("sacn-desktop") << true << false;
-    QTest::newRow("artnet-mobile") << false << true;
-    QTest::newRow("sacn-mobile") << true << true;
+    QTest::newRow("artnet") << false;
+    QTest::newRow("sacn") << true;
   }
   void activeChannelsFilter() {
     QFETCH(bool, sacn);
-    QFETCH(bool, compact);
     QTemporaryDir dir;
-    const auto previousCompact = qgetenv("DMXPULSE_COMPACT_UI");
-    qputenv("DMXPULSE_COMPACT_UI", compact ? "1" : "0");
     Window w(30454, 30568, dir.filePath("settings.ini"));
-    if (previousCompact.isNull())
-      qunsetenv("DMXPULSE_COMPACT_UI");
-    else
-      qputenv("DMXPULSE_COMPACT_UI", previousCompact);
     w.show();
     auto iface = w.findChild<QComboBox *>("networkInterface");
     for (int i = 0; i < iface->count(); ++i)
@@ -91,7 +81,7 @@ private slots:
     if (!qEnvironmentVariable("DMXPULSE_FILTER_SCREENSHOT").isEmpty())
       w.grab().save(qEnvironmentVariable("DMXPULSE_FILTER_SCREENSHOT"));
     filter->setChecked(false);
-    QCOMPARE(grid->rowCount(), compact ? 64 : 16);
+    QCOMPARE(grid->rowCount(), 16);
     QCOMPARE(grid->item(100 / grid->columnCount(), 100 % grid->columnCount())->text(),
              QString("101\n31"));
     QCOMPARE(channel->value(), 101);
@@ -113,7 +103,7 @@ private slots:
     QCOMPARE(grid->item(0, 0)->text(), QString("512\n99"));
     f.values.fill(1);
     publish();
-    QTRY_COMPARE(grid->rowCount(), compact ? 64 : 32);
+    QTRY_COMPARE(grid->rowCount(), 32);
     QCOMPARE(grid->item(grid->rowCount() - 1, grid->columnCount() - 1)->text(),
              QString("512\n1"));
     QCOMPARE(grid->currentRow(), 100 / grid->columnCount());

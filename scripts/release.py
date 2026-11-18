@@ -6,17 +6,13 @@ import os
 from pathlib import Path
 import re
 import zipfile
-from package_ios import validate_ipa
 import names
 
 # <App>-<os>-<arch>-<tag>: the same rule in every Pixel Stereo application (see scripts/names.py)
 def required():
     return (names.name("macos", "arm64", ".zip"), names.name("macos", "x64", ".zip"),
             names.name("windows", "x64", "-Setup.exe"), names.name("linux", "x64", ".deb"),
-            names.name("linux", "arm64", ".deb"), names.name("android", "arm64", ".apk"))
-
-def ios_packages():
-    return (names.name("ios", "arm64", "-unsigned.ipa"), names.name("ios", "arm64", ".ipa"))
+            names.name("linux", "arm64", ".deb"))
 
 # Names of earlier formats: never published together with the current ones
 OBSOLETE = ("DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg", "DMXPulse-windows-x86_64.zip",
@@ -27,11 +23,13 @@ OBSOLETE = ("DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg", "DMXPulse-w
             "DMXPulse-source.tar.gz", "release.json", "SHA256SUMS",
             "Android-NOTICES.md", "DMXPulse-android-arm64.apk.idsig")
 
+def obsolete():
+    # DMXPulse is a desktop application: the mobile packages it once published are pruned from a release being updated
+    return set(OBSOLETE) | {names.name("android", "arm64", ".apk"), names.name("ios", "arm64", "-unsigned.ipa"),
+                            names.name("ios", "arm64", ".ipa")}
+
 def stale_assets(names, directory):
-    obsolete = set(OBSOLETE)
-    unsigned, signed = ios_packages()
-    obsolete.add(signed if (Path(directory) / unsigned).is_file() else unsigned)
-    return sorted(set(names) & obsolete)
+    return sorted(set(names) & obsolete())
 
 
 def numeric_version(tag, fallback):
@@ -48,40 +46,25 @@ def verify(directory):
     missing = [name for name in required() if not (directory / name).is_file()]
     if missing:
         raise ValueError("Missing release assets: " + ", ".join(missing))
-    ios = [name for name in ios_packages() if (directory / name).is_file()]
-    if len(ios) != 1:
-        raise ValueError("Expected exactly one iOS device IPA (unsigned or signed)")
-    obsolete = [name for name in OBSOLETE if (directory / name).exists()]
-    if obsolete:
-        raise ValueError("Obsolete release assets: " + ", ".join(obsolete))
-    for name in (*required(), *ios):
+    stale = [name for name in sorted(obsolete()) if (directory / name).exists()]
+    if stale:
+        raise ValueError("Obsolete release assets: " + ", ".join(stale))
+    for name in required():
         path = directory / name
         if path.stat().st_size == 0:
             raise ValueError("Empty asset: " + name)
-        if path.suffix in (".zip", ".apk", ".ipa"):
+        if path.suffix == ".zip":
             with zipfile.ZipFile(path) as archive:
                 if archive.testzip() is not None:
                     raise ValueError("Corrupt archive: " + name)
                 names = archive.namelist()
-                if path.suffix == ".apk" and not {"AndroidManifest.xml", "classes.dex"}.issubset(names):
-                    raise ValueError("APK is missing its Android runtime")
-                if path.suffix == ".ipa":
-                    validate_ipa(archive)
-                    if name == ios_packages()[1] and not {
-                        "Payload/DMXPulse.app/embedded.mobileprovision",
-                        "Payload/DMXPulse.app/_CodeSignature/CodeResources",
-                    }.issubset(names):
-                        raise ValueError("Signed IPA is missing its profile/signature resources")
-                if path.suffix == ".zip":
-                    if not any(n.endswith(".app/Contents/MacOS/DMXPulse") for n in names):
-                        raise ValueError("Missing application executable in " + name)
-                if path.suffix == ".apk" and not any(n.startswith("lib/arm64-v8a/") and "DMXPulse" in n for n in names):
-                    raise ValueError("Missing ARM64 Android application library")
+                if not any(n.endswith(".app/Contents/MacOS/DMXPulse") for n in names):
+                    raise ValueError("Missing application executable in " + name)
         elif path.suffix == ".exe" and path.read_bytes()[:2] != b"MZ":
             raise ValueError("Invalid Windows installer: " + name)
         elif path.suffix == ".deb" and path.read_bytes()[:8] != b"!<arch>\n":
             raise ValueError("Invalid Debian package: " + name)
-    return [directory / name for name in sorted((*required(), *ios))]
+    return [directory / name for name in sorted(required())]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -93,7 +76,7 @@ def main():
     if args.command == "metadata":
         build = os.environ.get("GITHUB_RUN_NUMBER", "1")
         if not build.isdigit() or not 1 <= int(build) <= 2100000000:
-            raise ValueError("Invalid mobile build number")
+            raise ValueError("Invalid build number")
         values = {"version": version, "build_number": build}
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:

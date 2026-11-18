@@ -20,7 +20,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      build_number: ${{ steps.meta.outputs.build_number }}
     steps:
       - uses: actions/checkout@v4
       - name: Test release tooling
@@ -182,137 +181,6 @@ jobs:
             build/window-test.txt
             build/levelcontrol-test.txt
 
-  android:
-    needs: metadata
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true # third_party/pxs (the look)
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - name: Install SDK and NDK
-        run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          target: android
-          arch: android_arm64_v8a
-          extra: --autodesktop
-          cache: true
-      - name: Build release APK
-        env:
-          APP_VERSION: ${{ needs.metadata.outputs.version }}
-          APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
-        run: |
-          qt-cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125" -DDMXPULSE_VERSION="$APP_VERSION" -DDMXPULSE_BUILD_NUMBER="$APP_BUILD_NUMBER"
-          cmake --build build-android --target apk --parallel 3
-      - name: Sign and verify APK
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: python3 scripts/package_android.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package-android
-          path: dist/*
-          if-no-files-found: error
-
-  android-test:
-    needs: metadata
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true # third_party/pxs (the look)
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;26.1.10909125'
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          target: android
-          arch: android_x86_64
-          extra: --autodesktop
-          cache: true
-      - name: Build on-device test
-        run: |
-          qt-cmake -S . -B build-android-test -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
-          cmake --build build-android-test --target DMXPulseMobileTest_make_apk --parallel 3
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          script: python3 scripts/run_mobile_test.py android build-android-test
-
-  ios:
-    needs: metadata
-    runs-on: macos-15-intel
-    timeout-minutes: 45
-    env:
-      APP_VERSION: ${{ needs.metadata.outputs.version }}
-      APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true # third_party/pxs (the look)
-      - uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          target: ios
-          arch: ios
-          archives: qtbase
-          cache: true
-      - name: Build device application
-        run: |
-          qt-cmake -S . -B build-ios -G Xcode -DBUILD_TESTING=OFF -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION" -DDMXPULSE_BUILD_NUMBER="$APP_BUILD_NUMBER"
-          cmake --build build-ios --config Release --parallel 3
-          mkdir -p dist
-          APP="$(find build-ios -path '*Release-iphoneos/DMXPulse.app' -type d -print -quit)"
-          test -n "$APP"
-          python3 scripts/package_ios.py "$APP"
-      - name: Build simulator and on-device tests
-        run: |
-          qt-cmake -S . -B build-ios-simulator -G Xcode -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO -DDMXPULSE_VERSION="$APP_VERSION"
-          cmake --build build-ios-simulator --target DMXPulseMobileTest --config Release --parallel 3
-          codesign --force --deep --sign - build-ios-simulator/Release-iphonesimulator/DMXPulseMobileTest.app
-          python3 scripts/run_mobile_test.py ios build-ios-simulator/Release-iphonesimulator
-      - name: Export signed IPA when configured
-        env:
-          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
-          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          IOS_EXPORT_METHOD: ${{ vars.IOS_EXPORT_METHOD }}
-        run: |
-          if [[ -n "$IOS_CERTIFICATE_BASE64" ]]; then bash scripts/sign_ios.sh; else echo 'No Apple signing secrets: shipping an unsigned device IPA for resignment.'; fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package-ios
-          path: dist/*
-          if-no-files-found: error
-
   sanitizers:
     needs: metadata
     runs-on: ubuntu-24.04
@@ -334,7 +202,7 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
-    needs: [metadata, linux, macos, windows, android, android-test, ios, sanitizers]
+    needs: [metadata, linux, macos, windows, sanitizers]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -374,4 +242,4 @@ jobs:
     permissions:
       contents: write
     uses: PixelStereo/pxs/.github/workflows/release-downloads.yml@v0.12.1
-    with: { app: DMXPulse, platforms: "mac,win,linux,android,ios", pxs-ref: v0.12.1 }
+    with: { app: DMXPulse, platforms: "mac,win,linux", pxs-ref: v0.12.1 }
