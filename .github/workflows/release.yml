@@ -357,3 +357,11 @@ jobs:
               subprocess.run(["gh", "release", "delete-asset", tag, name, "--yes"], check=True)
           PY
           gh release edit "$RELEASE_TAG" --draft=false
+
+  # The README download badges and VERSION follow the latest complete release
+  downloads:
+    needs: release
+    permissions:
+      contents: write
+    uses: PixelStereo/pxs/.github/workflows/release-downloads.yml@v0.12.1
+    with: { app: DMXPulse, platforms: "mac,win,linux,android,ios", pxs-ref: v0.12.1 }
