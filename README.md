@@ -8,6 +8,10 @@
   <a href="docs/guide.md">User guide</a> ·
   <a href="docs/build.md">Build from source</a>
 </p>
+
+<!-- release-downloads:start -->
+<!-- release-downloads:end -->
+
 <p align="center">
   <a href="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml"><img alt="Build and release" src="https://github.com/PixelStereo/DMXPulse/actions/workflows/release.yml/badge.svg"></a>
   <img alt="License AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-8aa99a">
