@@ -500,8 +500,11 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
                                     state == Qt::ApplicationSuspended))
               saveSettings();
           });
-  // The graphite look shared by every Pixel Stereo application; the rest is this window's own structure
-  pxs::apply(*static_cast<QApplication *>(QCoreApplication::instance()), pxs::graphite(), QStringLiteral(R"(
+  // The graphite look shared by every Pixel Stereo application (palette, Fusion, check boxes, tabs). This window's own
+  // structure keeps its scope: written with the same colour tokens, on the window
+  const pxs::Palette palette = pxs::graphite();
+  pxs::apply(*static_cast<QApplication *>(QCoreApplication::instance()), palette);
+  setStyleSheet(pxs::resolve(QStringLiteral(R"(
     QWidget { background:@base; color:@text; font-size:12px; }
     QLabel, QWidget#field { background:transparent; }
     QLabel#title { font-size:23px; font-weight:600; color:@text; }
@@ -530,9 +533,9 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QLabel#emptyChannelGrid { color:@muted; border:1px solid @midlight; border-radius:5px; padding:20px; }
     QLabel#diagnostics { background:@window; padding:10px; color:@muted; border-radius:5px; }
     QMenuBar { background:@base; } QMenu { background:@window; } QMenu::item:selected { background:@light; }
-  )"));
+  )"), palette));
   if (compact)
-    qApp->setStyleSheet(qApp->styleSheet() +
+    setStyleSheet(styleSheet() +
                   "QComboBox,QSpinBox,QLineEdit,QPushButton{min-height:26px;"
                   "font-size:14px} QLabel{font-size:12px}");
   connect(listen, &QPushButton::toggled, this, [this, rescan](bool) {
