@@ -8,8 +8,6 @@ Get the package matching your device from [Releases](https://github.com/PixelSte
 - **Windows:** extract the whole ZIP and launch `DMXPulse.exe`. Keep the DLLs and plugin folders alongside it.
 - **Linux:** install the `amd64.deb` with your graphical package installer or `sudo apt install ./DMXPulse-linux-x64-<version>.deb`. Dependencies are installed by the package manager. A graphical desktop is required.
 - **Raspberry Pi:** use 64-bit Raspberry Pi OS Bookworm with a graphical desktop and install the `arm64.deb`. This package is not for 32-bit Raspberry Pi OS.
-- **Android:** install the APK after allowing installation from your chosen download source. A persistent release signing key is recommended for updates. Packages signed with an ephemeral CI test key may require uninstalling the previous package before upgrading, which clears its settings.
-- **iOS:** download the device IPA. `DMXPulse-ios-arm64-<version>-unsigned.ipa` contains the app under `Payload/DMXPulse.app` and must be signed/provisioned before installation; changing the archive format alone does not make it installable. When Apple signing is configured, the release contains `DMXPulse-ios-arm64-<version>.ipa` instead, with installation determined by its provisioning profile. Simulator builds are used only for CI tests and are not released. This is not an App Store listing.
 
 ## Read a universe
 
@@ -21,7 +19,7 @@ Enable **Active channels only** above the grid (also in **View**, shortcut **Ctr
 
 Input is marked stale after 2.5 seconds without a new packet. Last values remain visible; a stale source disappears after 60 seconds. Selecting a different universe does not convert output values into input.
 
-Desktop users can click a channel or navigate with the arrow keys. The universe list stays on the left and the output encoder and transmission controls stay on the right. There are no workspace tabs. On smaller mobile screens, the panels stack vertically in a scrollable workspace.
+Desktop users can click a channel or navigate with the arrow keys. The universe list stays on the left and the output encoder and transmission controls stay on the right. There are no workspace tabs.
 
 ## One view per universe
 
@@ -70,13 +68,9 @@ Open **View → Network diagnostics** from the application menu.
 
 Art-Net uses UDP 6454; sACN uses UDP 5568. Allow local-network access and appropriate firewall traffic. A switched network does not expose unicast packets sent exclusively to another device.
 
-## Mobile networking
-
-Use Wi-Fi or a supported wired network adapter on the lighting network. The application requests Android's Wi-Fi multicast lock while listening. Grant local-network access on iOS. iOS broadcast and multicast require Apple's approved multicast entitlement in the signing profile; unicast is the fallback when that entitlement is unavailable. Use the application in the foreground; background delivery/transmission is not guaranteed by mobile operating systems.
-
 ## Saved settings
 
-Workspace settings are saved on close and when a mobile application becomes inactive. They include the adapter identity, protocol, universe, destination, priority, 512 output values and channel overrides, input following, merge mode, selected channel, window/panel layout, journal position and startup choices. A missing saved adapter prevents automatic network restart.
+Workspace settings are saved on close. They include the adapter identity, protocol, universe, destination, priority, 512 output values and channel overrides, input following, merge mode, selected channel, window/panel layout, journal position and startup choices. A missing saved adapter prevents automatic network restart.
 
 **Startup → Resume listening** is on by default. **Startup → Resume transmission** is off by default; enable it to restore the previous active transmission state as well. Output values are restored either way.
 

@@ -1,6 +1,5 @@
 #include <pxs/Theme.h>
 #include "window.h"
-#include "platform.h"
 namespace {
 
 class ChannelDelegate : public QStyledItemDelegate {
@@ -48,13 +47,10 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
           : std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
   paintedInput.fill(-2);
   paintedOutput.fill(-2);
-  compact = QGuiApplication::platformName() == "android" ||
-            QGuiApplication::platformName() == "ios" ||
-            qEnvironmentVariableIntValue("DMXPULSE_COMPACT_UI") == 1;
-  columns = compact ? 8 : 32;
+  columns = 32;
   clock.start();
   setWindowTitle("DMXPulse");
-  resize(compact ? 390 : 1440, compact ? 844 : 900);
+  resize(1440, 900);
   auto root = new QWidget;
   setCentralWidget(root);
   auto layout = new QVBoxLayout(root);
@@ -67,7 +63,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   auto subtitle = new QLabel("Network DMX monitor");
   subtitle->setObjectName("muted");
   header->addWidget(subtitle);
-  subtitle->setVisible(!compact);
   header->addStretch();
   signal = new QLabel("No signal");
   signal->setObjectName("signal");
@@ -139,23 +134,12 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   listen->setMinimumWidth(140);
   listen->setShortcut(QKeySequence("Ctrl+L"));
   listen->setToolTip("Start or stop receiving DMX (Ctrl+L)");
-  if (compact) {
-    iface->setMinimumWidth(0);
-    listen->setMinimumWidth(0);
-    universe->setMinimumWidth(0);
-    toolbar->addWidget(field("Network interface", iface), 0, 0, 1, 3);
-    toolbar->addWidget(field("Protocol", protocol), 1, 0);
-    toolbar->addWidget(field("Universe", universe), 1, 1);
-    toolbar->addWidget(field("Adapters", rescan), 1, 2);
-    toolbar->addWidget(listen, 2, 0, 1, 3);
-  } else {
-    toolbar->addWidget(field("Network interface", iface), 0, 0);
-    toolbar->setColumnStretch(0, 1);
-    toolbar->addWidget(field("Adapters", rescan), 0, 1);
-    toolbar->addWidget(field("Protocol", protocol), 0, 2);
-    toolbar->addWidget(field("Universe", universe), 0, 3);
-    toolbar->addWidget(field("Input", listen), 0, 4);
-  }
+  toolbar->addWidget(field("Network interface", iface), 0, 0);
+  toolbar->setColumnStretch(0, 1);
+  toolbar->addWidget(field("Adapters", rescan), 0, 1);
+  toolbar->addWidget(field("Protocol", protocol), 0, 2);
+  toolbar->addWidget(field("Universe", universe), 0, 3);
+  toolbar->addWidget(field("Input", listen), 0, 4);
   layout->addLayout(toolbar);
   split = new QSplitter;
   split->setObjectName("workspace");
@@ -181,8 +165,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   sideLayout->addWidget(sourceHint);
   outputPanel = new QFrame;
   outputPanel->setObjectName("outputPanel");
-  outputPanel->setMinimumWidth(compact ? 0 : 270);
-  outputPanel->setMaximumWidth(compact ? QWIDGETSIZE_MAX : 340);
+  outputPanel->setMinimumWidth(270);
+  outputPanel->setMaximumWidth(340);
   auto editorWidget = new QWidget;
   auto editorLayout = new QVBoxLayout(editorWidget);
   editorLayout->setContentsMargins(14, 14, 14, 14);
@@ -294,13 +278,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   grid->setItemDelegate(new ChannelDelegate(grid));
   grid->horizontalHeader()->setMinimumSectionSize(20);
   grid->verticalHeader()->setMinimumSectionSize(22);
-  if (compact) {
-    legend->hide();
-    grid->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    grid->verticalHeader()->setDefaultSectionSize(48);
-    grid->horizontalHeader()->setMinimumSectionSize(32);
-    QScroller::grabGesture(grid->viewport(), QScroller::TouchGesture);
-  }
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
   grid->setSelectionMode(QAbstractItemView::SingleSelection);
   grid->setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -322,8 +299,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   canvasLayout->addWidget(gridStack, 1);
   connect(activeChannelsOnly, &QAction::toggled, this, [this](bool active) {
     grid->verticalHeader()->setSectionResizeMode(
-        compact || active ? QHeaderView::Fixed : QHeaderView::Stretch);
-    if (active || compact)
+        active ? QHeaderView::Fixed : QHeaderView::Stretch);
+    if (active)
       grid->verticalHeader()->setDefaultSectionSize(48);
     render();
   });
@@ -370,7 +347,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   auto logHint = new QLabel("Latest 2,000 entries · timestamp · direction · "
                             "universe · source · changes");
   logHint->setObjectName("muted");
-  logHint->setVisible(!compact);
   logTools->addWidget(logHint, 1);
   pauseLog = new QCheckBox("Pause");
   pauseLog->setObjectName("pauseLog");
@@ -391,7 +367,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   addDockWidget(Qt::BottomDockWidgetArea, logDock);
   resizeDocks({logDock}, {160}, Qt::Vertical);
   logDock->setMinimumHeight(110);
-  logDock->setVisible(!compact);
   connect(clearLog, &QPushButton::clicked, this, [this] {
     pendingLog.clear();
     eventLog->clear();
@@ -475,31 +450,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   resumeSend->setCheckable(true);
   resumeSend->setToolTip(
       "Restore the last transmission state, including output values");
-  if (compact) {
-    side->setMinimumWidth(0);
-    side->setMaximumWidth(QWIDGETSIZE_MAX);
-    sources->setMaximumHeight(140);
-    side->setMaximumHeight(210);
-    split->setOrientation(Qt::Vertical);
-    split->setMinimumHeight(1400);
-    split->setSizes({180, 540, 680});
-    grid->setMinimumHeight(400);
-    auto scroll = new QScrollArea;
-    scroll->setWidgetResizable(true);
-    takeCentralWidget();
-    scroll->setWidget(root);
-    setCentralWidget(scroll);
-    metrics->setWordWrap(true);
-    status->setWordWrap(true);
-    layout->setContentsMargins(10, 10, 10, 10);
-    layout->setSpacing(8);
-  }
-  connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
-          [this](Qt::ApplicationState state) {
-            if (!workspaceSaved && (state == Qt::ApplicationInactive ||
-                                    state == Qt::ApplicationSuspended))
-              saveSettings();
-          });
   // The graphite look shared by every Pixel Stereo application (palette, Fusion, check boxes, tabs). This window's own
   // structure keeps its scope: written with the same colour tokens, on the window
   const pxs::Palette palette = pxs::graphite();
@@ -534,10 +484,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QLabel#diagnostics { background:@window; padding:10px; color:@muted; border-radius:5px; }
     QMenuBar { background:@base; } QMenu { background:@window; } QMenu::item:selected { background:@light; }
   )"), palette));
-  if (compact)
-    setStyleSheet(styleSheet() +
-                  "QComboBox,QSpinBox,QLineEdit,QPushButton{min-height:26px;"
-                  "font-size:14px} QLabel{font-size:12px}");
   connect(listen, &QPushButton::toggled, this, [this, rescan](bool) {
     rescan->setEnabled(!listen->isChecked() && !send->isChecked());
   });
@@ -751,13 +697,9 @@ void Window::start() {
                       .arg(sacnPort));
   if (protocol->currentIndex())
     join(universe->value());
-  if (!setMulticastReceptionEnabled(true))
-    status->setText("Could not acquire Wi-Fi multicast reception. Unicast is "
-                    "still available.");
   listen->setText("Stop listening");
 }
 void Window::stop() {
-  setMulticastReceptionEnabled(false);
   art.close();
   artUnicast.close();
   sacn.close();
@@ -1091,7 +1033,7 @@ void Window::render() {
   live = live && listen->isChecked();
   const bool hasInput = rx.size() == 512;
   const bool activeOnly = activeChannelsOnly->isChecked();
-  const int displayColumns = compact ? 8 : activeOnly ? 16 : 32;
+  const int displayColumns = activeOnly ? 16 : 32;
   int active = 0;
   QVector<int> shown;
   shown.reserve(512);
@@ -1291,8 +1233,7 @@ void Window::updateControls() {
 }
 void Window::restoreSettings() {
   auto &s = *settings;
-  if (!compact)
-    restoreGeometry(s.value("window/geometry").toByteArray());
+  restoreGeometry(s.value("window/geometry").toByteArray());
   split->restoreState(s.value("window/splitterV2").toByteArray());
   auto savedCid = s.value("network/cid").toByteArray();
   if (savedCid.size() == 16)
@@ -1317,10 +1258,8 @@ void Window::restoreSettings() {
   activeChannelsOnly->setChecked(
       s.value("view/activeChannelsOnly", false).toBool());
   showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
-  showSources->setChecked(compact ? true
-                                  : s.value("view/sources", true).toBool());
-  outputToggle->setChecked(compact ? true
-                                   : s.value("view/output", true).toBool());
+  showSources->setChecked(s.value("view/sources", true).toBool());
+  outputToggle->setChecked(s.value("view/output", true).toBool());
   s.beginGroup("view/mergeModes");
   for (const auto &key : s.allKeys()) {
     const auto parts = key.split('/');
@@ -1369,7 +1308,6 @@ void Window::saveSettings() {
   s.setValue("output/priority", priority->value());
   s.setValue("output/values", output);
   s.remove("view/gridMode");
-  s.remove("view/mobileTab");
   s.remove("view/inspectorTab");
   s.setValue("window/docks", saveState());
   s.setValue("log/paused", pauseLog->isChecked());
