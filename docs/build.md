@@ -7,7 +7,6 @@ For installation and everyday use, see the [user guide](guide.md). This document
 - CMake 3.21+, a C++17 compiler, and Qt 6.4+ Core/Gui/Widgets/Network.
 - Qt Test for desktop regression tests; use `-DBUILD_TESTING=OFF` for application-only builds.
 - Python 3.10+ for packaging and release checks.
-- Mobile builds use the Qt 6.8.3 SDKs in CI. Match SDK/NDK/JDK and compiler versions to the Qt kit.
 
 The [build workflow](../.github/workflows/release.yml) is the executable specification for CI dependencies and commands. It follows a build → test → package → smoke-test → publish sequence. A failed required job prevents release publication.
 
@@ -70,70 +69,6 @@ DMXPulse --smoke-test -platform offscreen
 
 CPack computes shared-library dependencies using `dpkg-shlibdeps`. DEB packages rely on the distribution's Qt runtime; they are not self-contained AppImages.
 
-## Android
-
-CI builds an ARM64 release APK and a separate x86-64 emulator test application. Use JDK 17, Android SDK platform/build tools 35, NDK `26.1.10909125`, and Qt 6.8.3 for the selected ABI, plus the matching desktop host tools. The Qt installer action uses `--autodesktop` to fetch host tools.
-
-```sh
-/path/to/Qt/6.8.3/android_arm64_v8a/bin/qt-cmake -S . -B build-android \
-  -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
-  -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
-  -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125" \
-  -DDMXPULSE_BUILD_NUMBER=1
-cmake --build build-android --target apk --parallel 3
-python3 scripts/package_android.py
-```
-
-The manifest declares Internet, network state, Wi-Fi state and multicast-lock permissions. Listening acquires a non-reference-counted Wi-Fi multicast lock and releases it when stopped. The mobile UI stacks the universe list, eight-column receive grid and output panel vertically in a scrollable workspace. Network behavior still needs physical-device testing on the intended Wi-Fi infrastructure.
-
-### Android signing secrets
-
-Configure repository Actions secrets:
-
-| Secret | Value |
-|---|---|
-| `ANDROID_KEYSTORE_BASE64` | Base64-encoded persistent signing keystore |
-| `ANDROID_KEYSTORE_PASSWORD` | Store password |
-| `ANDROID_KEY_ALIAS` | Signing alias |
-| `ANDROID_KEY_PASSWORD` | Key password |
-
-If no keystore is configured, CI signs an installable test APK using an ephemeral key. Such APKs are for evaluation: a later build may require uninstalling the previous installation. A persistent key is required for reliable upgrades. Keystore files and passwords are not added to the repository or release assets.
-
-## iOS / iPadOS
-
-Use macOS, Xcode, the Qt 6.8.3 iOS kit and CMake's Xcode generator. CI builds the ARM64 device application and publishes one IPA. An Intel simulator is used only to run the mobile regression test; no simulator archive is published.
-
-```sh
-/path/to/Qt/6.8.3/ios/bin/qt-cmake -S . -B build-ios -G Xcode \
-  -DBUILD_TESTING=OFF -DCMAKE_OSX_SYSROOT=iphoneos \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
-  -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
-cmake --build build-ios --config Release --parallel 3
-```
-
-The unsigned device app is wrapped in `Payload/DMXPulse.app` inside `DMXPulse-ios-arm64-<version>-unsigned.ipa` using `python3 scripts/package_ios.py /path/to/DMXPulse.app`. This IPA is provided for resignment and is not directly installable before Apple signing/provisioning. The custom plist includes the local-network usage description. Broadcast/multicast on physical iOS devices requires the approved `com.apple.developer.networking.multicast` entitlement in the provisioning profile. Unicast is available without that entitlement, subject to local-network permission.
-
-### Optional signed IPA
-
-Configure these Actions secrets to replace the unsigned IPA with `DMXPulse-ios-arm64-<version>.ipa` in a release:
-
-| Secret | Value |
-|---|---|
-| `IOS_CERTIFICATE_BASE64` | Base64 Apple Distribution `.p12` |
-| `IOS_CERTIFICATE_PASSWORD` | Password for that certificate |
-| `IOS_PROFILE_BASE64` | Base64 provisioning profile for `fr.pixelstereo.dmxpulse`, with approved multicast entitlement |
-| `APPLE_TEAM_ID` | Apple developer team identifier |
-
-Optional repository variable `IOS_EXPORT_METHOD` defaults to `release-testing` (Xcode 16 terminology). Use a method matching the certificate/profile and your distribution plan. The workflow creates a temporary keychain, imports existing signing material, checks the multicast entitlement, archives and exports with manual signing, then removes the temporary keychain. It does not create Apple certificates/profiles, register devices, upload to App Store Connect, or bypass provisioning requirements.
-
-## Mobile tests
-
-`-DDMXPULSE_BUILD_MOBILE_TESTS=ON` builds `DMXPulseMobileTest`, with an isolated application identity and temporary workspace. It verifies both packet encoders/decoders and that editing an output channel cannot populate the received grid.
-
-- Android CI boots a hardware-accelerated x86-64 emulator and requires the explicit `DMXPULSE_MOBILE_TEST_PASS` log marker.
-- iOS CI installs the test on an available simulator and requires the same marker.
-- Merely building or launching an application does not count as a test pass.
-
 ## Tag-driven releases
 
 Every pushed tag triggers all builds. Pushes to `main`, pull requests and manual dispatch also validate/package, without publishing a release unless the ref is a tag.
@@ -143,19 +78,17 @@ git tag v1.1.0
 git push origin v1.1.0
 ```
 
-Do not move published tags. Numeric tags (`v1.2`, `1.2.3`, `v1.2.3-rc.1`) determine the embedded numeric application version. Other tag names use the checked-in `VERSION`; the exact tag still identifies the GitHub release. `github.run_number` supplies the increasing mobile build number.
+Do not move published tags. Numeric tags (`v1.2`, `1.2.3`, `v1.2.3-rc.1`) determine the embedded numeric application version. Other tag names use the checked-in `VERSION`; the exact tag still identifies the GitHub release.
 
 Required release assets:
 
 - One macOS ARM64 zip and one macOS x86-64 zip, and one Windows installer.
 - Windows x86-64 portable ZIP.
 - Linux AMD64 and Raspberry Pi ARM64 DEBs.
-- Android ARM64 signed APK.
-- Exactly one iOS ARM64 device IPA: unsigned for resignment, or signed when Apple signing is configured.
 
-Only these seven packages are attached to releases. Simulator builds remain internal to the test job. Duplicate macOS ZIPs, former iOS ZIPs, custom source archives, metadata files and Android sidecar files are removed when updating an existing release. GitHub provides its own source downloads. License notices remain embedded in the application.
+Only these packages are attached to releases. Duplicate macOS ZIPs, the mobile packages DMXPulse no longer builds, custom source archives and metadata files are removed when updating an existing release. GitHub provides its own source downloads. License notices remain embedded in the application.
 
-The release job downloads package artifacts, validates the complete required set and archive integrity, creates a draft release, uploads only the seven validated packages, and publishes it. Missing packages or a failed desktop/mobile/sanitizer job block publication. Signing state is documented rather than presenting unsigned iOS artifacts as installable apps.
+The release job downloads package artifacts, validates the complete required set and archive integrity, creates a draft release, uploads only the validated packages, and publishes it. Missing packages or a failed desktop or sanitizer job block publication.
 
 ## Checks and diagnostics
 

@@ -65,7 +65,6 @@ private:
   QLabel *status, *metrics, *signal, *universeTitle, *inputValue;
   QSplitter *split;
   int columns = 32;
-  bool compact = false;
   QWidget *side, *outputPanel, *destinationField, *priorityField;
   QAction *outputToggle;
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;

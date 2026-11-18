@@ -93,8 +93,7 @@ printf '\nConfiguring Release build…\n'
   -DCMAKE_OSX_SYSROOT="$macos_sdk" \
   -DCMAKE_OSX_ARCHITECTURES="$(/usr/bin/uname -m)" \
   -DDMXPULSE_VERSION="$app_version" \
-  -DBUILD_TESTING=OFF \
-  -DDMXPULSE_BUILD_MOBILE_TESTS=OFF
+  -DBUILD_TESTING=OFF
 
 printf '\nBuilding DMXPulse (%s jobs)…\n' "$build_jobs"
 "$cmake_bin" --build "$build_dir" --config Release --target DMXPulse --parallel "$build_jobs"
