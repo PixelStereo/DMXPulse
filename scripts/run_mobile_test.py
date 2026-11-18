@@ -16,6 +16,20 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
+def retry(what, attempts, action, recover=None):
+    """GitHub-hosted simulators and emulators stall now and then: a hung step is tried again, after `recover`."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            print(f"{what}: attempt {attempt}/{attempts} failed: {error}", flush=True)
+            if attempt == attempts:
+                raise
+            if recover:
+                recover()
+            time.sleep(10)
+
+
 def find_android_test_apk(build):
     # Qt 6.8 uses android-build-debug.apk even for a differently named CMake target.
     candidates = list(Path(build).rglob("*-debug.apk"))
@@ -25,7 +39,8 @@ def find_android_test_apk(build):
 
 
 def android(build):
-    run("adb", "install", "-r", str(find_android_test_apk(build)), timeout=90)
+    apk = str(find_android_test_apk(build))
+    retry("adb install", 3, lambda: run("adb", "install", "-r", apk, timeout=90))
     run("adb", "logcat", "-c")
     run("adb", "shell", "am", "start", "-n", BUNDLE + "/org.qtproject.qt.android.bindings.QtActivity", timeout=30)
     deadline = time.monotonic() + 60
@@ -75,7 +90,14 @@ def ios(build):
     # SpringBoard. Keep a finite budget without mistaking slow startup for an
     # application failure.
     run("xcrun", "simctl", "bootstatus", device, "-b", timeout=420)
-    run("xcrun", "simctl", "install", device, str(candidates[0]), timeout=300)
+
+    def restart():
+        # An install that hangs means the simulator is stuck: start it again
+        subprocess.run(["xcrun", "simctl", "shutdown", device], check=False, timeout=120)
+        run("xcrun", "simctl", "boot", device, timeout=120)
+        run("xcrun", "simctl", "bootstatus", device, "-b", timeout=420)
+
+    retry("simctl install", 3, lambda: run("xcrun", "simctl", "install", device, str(candidates[0]), timeout=240), restart)
     result = run("xcrun", "simctl", "launch", "--console", device, BUNDLE, capture_output=True, timeout=180)
     log = result.stdout + result.stderr
     print(log)

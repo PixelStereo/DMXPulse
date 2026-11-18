@@ -206,13 +206,25 @@ jobs:
           arch: android_arm64_v8a
           extra: --autodesktop
           cache: true
+      - uses: actions/cache@v4 # Maven Central answers 429 to shared runners: keep what Gradle downloaded
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ env.QT_VERSION }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: gradle-${{ runner.os }}-${{ env.QT_VERSION }}-
       - name: Build release APK
         env:
           APP_VERSION: ${{ needs.metadata.outputs.version }}
           APP_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
         run: |
           qt-cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125" -DDMXPULSE_VERSION="$APP_VERSION" -DDMXPULSE_BUILD_NUMBER="$APP_BUILD_NUMBER"
-          cmake --build build-android --target apk --parallel 3
+          # Gradle downloads its dependencies from Maven Central, which can answer 429: try again after a pause
+          for attempt in 1 2 3; do
+            cmake --build build-android --target apk --parallel 3 && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            echo "APK build failed (attempt $attempt), trying again"; sleep $((attempt * 45))
+          done
       - name: Sign and verify APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -249,10 +261,21 @@ jobs:
           arch: android_x86_64
           extra: --autodesktop
           cache: true
+      - uses: actions/cache@v4 # Maven Central answers 429 to shared runners: keep what Gradle downloaded
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ env.QT_VERSION }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: gradle-${{ runner.os }}-${{ env.QT_VERSION }}-
       - name: Build on-device test
         run: |
           qt-cmake -S . -B build-android-test -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DDMXPULSE_BUILD_MOBILE_TESTS=ON -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" -DANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/26.1.10909125"
-          cmake --build build-android-test --target DMXPulseMobileTest_make_apk --parallel 3
+          for attempt in 1 2 3; do
+            cmake --build build-android-test --target DMXPulseMobileTest_make_apk --parallel 3 && break
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            echo "Test APK build failed (attempt $attempt), trying again"; sleep $((attempt * 45))
+          done
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
