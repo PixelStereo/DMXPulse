@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Wrap an unsigned iPhoneOS application in a resignment-ready IPA."""
+import names
 import argparse
 import os
 from pathlib import Path
@@ -70,7 +71,7 @@ def package(app, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", help="Path to a device DMXPulse.app")
-    parser.add_argument("--output", default="dist/DMXPulse-ios-unsigned.ipa")
+    parser.add_argument("--output", default="dist/" + names.name("ios", "arm64", "-unsigned.ipa"))
     args = parser.parse_args()
     package(args.app, args.output)
 

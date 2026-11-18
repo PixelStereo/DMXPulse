@@ -41,7 +41,7 @@ options={'method':os.environ['IOS_EXPORT_METHOD'],'teamID':os.environ['APPLE_TEA
 with open('build-ios-signed/ExportOptions.plist','wb') as f:plistlib.dump(options,f)
 PY
 xcodebuild -exportArchive -archivePath build-ios-signed/DMXPulse.xcarchive -exportOptionsPlist build-ios-signed/ExportOptions.plist -exportPath build-ios-signed/export
-cp build-ios-signed/export/DMXPulse.ipa dist/DMXPulse-ios.ipa
+cp build-ios-signed/export/DMXPulse.ipa "dist/$(python3 scripts/names.py ios arm64 .ipa)"
 
 # Publish exactly one iOS device package after a successful signed export.
-rm -f dist/DMXPulse-ios-unsigned.ipa
+rm -f "dist/$(python3 scripts/names.py ios arm64 -unsigned.ipa)"

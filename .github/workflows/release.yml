@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 env:
   QT_VERSION: '6.8.3'
+  # The tag being built: part of every release file name (scripts/names.py); empty on an ordinary build
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 jobs:
   metadata:
     runs-on: ubuntu-24.04
@@ -63,7 +65,7 @@ jobs:
         run: |
           mkdir -p dist
           (cd build && cpack -G DEB)
-          cp build/dmxpulse_*.deb "dist/DMXPulse-$PLATFORM-$ARCH.deb"
+          cp build/dmxpulse_*.deb "dist/$(python3 scripts/names.py linux "$ARCH" .deb)"
           apt-get install -y ./dist/*.deb
           DMXPulse --smoke-test -platform offscreen
       - uses: actions/upload-artifact@v4

@@ -7,23 +7,30 @@ from pathlib import Path
 import re
 import zipfile
 from package_ios import validate_ipa
+import names
 
-REQUIRED = (
-    "DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip",
-    "DMXPulse-windows-x86_64-Setup.exe", "DMXPulse-linux-amd64.deb",
-    "DMXPulse-raspberry-arm64.deb", "DMXPulse-android-arm64.apk",
-)
+# <App>-<os>-<arch>-<tag>: the same rule in every Pixel Stereo application (see scripts/names.py)
+def required():
+    return (names.name("macos", "arm64", ".zip"), names.name("macos", "x64", ".zip"),
+            names.name("windows", "x64", "-Setup.exe"), names.name("linux", "x64", ".deb"),
+            names.name("linux", "arm64", ".deb"), names.name("android", "arm64", ".apk"))
 
-IOS_PACKAGES = ("DMXPulse-ios-unsigned.ipa", "DMXPulse-ios.ipa")
+def ios_packages():
+    return (names.name("ios", "arm64", "-unsigned.ipa"), names.name("ios", "arm64", ".ipa"))
+
+# Names of earlier formats: never published together with the current ones
 OBSOLETE = ("DMXPulse-macos-arm64.dmg", "DMXPulse-macos-x86_64.dmg", "DMXPulse-windows-x86_64.zip",
+            "DMXPulse-macos-arm64.zip", "DMXPulse-macos-x86_64.zip", "DMXPulse-windows-x86_64-Setup.exe",
+            "DMXPulse-linux-amd64.deb", "DMXPulse-raspberry-arm64.deb", "DMXPulse-android-arm64.apk",
+            "DMXPulse-ios-unsigned.ipa", "DMXPulse-ios.ipa",
             "DMXPulse-ios-device-unsigned.zip", "DMXPulse-ios-simulator-x86_64.zip",
             "DMXPulse-source.tar.gz", "release.json", "SHA256SUMS",
             "Android-NOTICES.md", "DMXPulse-android-arm64.apk.idsig")
 
 def stale_assets(names, directory):
     obsolete = set(OBSOLETE)
-    obsolete.add("DMXPulse-ios.ipa" if (Path(directory) / "DMXPulse-ios-unsigned.ipa").is_file()
-                 else "DMXPulse-ios-unsigned.ipa")
+    unsigned, signed = ios_packages()
+    obsolete.add(signed if (Path(directory) / unsigned).is_file() else unsigned)
     return sorted(set(names) & obsolete)
 
 
@@ -38,16 +45,16 @@ def numeric_version(tag, fallback):
 
 def verify(directory):
     directory = Path(directory)
-    missing = [name for name in REQUIRED if not (directory / name).is_file()]
+    missing = [name for name in required() if not (directory / name).is_file()]
     if missing:
         raise ValueError("Missing release assets: " + ", ".join(missing))
-    ios = [name for name in IOS_PACKAGES if (directory / name).is_file()]
+    ios = [name for name in ios_packages() if (directory / name).is_file()]
     if len(ios) != 1:
         raise ValueError("Expected exactly one iOS device IPA (unsigned or signed)")
     obsolete = [name for name in OBSOLETE if (directory / name).exists()]
     if obsolete:
         raise ValueError("Obsolete release assets: " + ", ".join(obsolete))
-    for name in (*REQUIRED, *ios):
+    for name in (*required(), *ios):
         path = directory / name
         if path.stat().st_size == 0:
             raise ValueError("Empty asset: " + name)
@@ -60,7 +67,7 @@ def verify(directory):
                     raise ValueError("APK is missing its Android runtime")
                 if path.suffix == ".ipa":
                     validate_ipa(archive)
-                    if name == "DMXPulse-ios.ipa" and not {
+                    if name == ios_packages()[1] and not {
                         "Payload/DMXPulse.app/embedded.mobileprovision",
                         "Payload/DMXPulse.app/_CodeSignature/CodeResources",
                     }.issubset(names):
@@ -74,7 +81,7 @@ def verify(directory):
             raise ValueError("Invalid Windows installer: " + name)
         elif path.suffix == ".deb" and path.read_bytes()[:8] != b"!<arch>\n":
             raise ValueError("Invalid Debian package: " + name)
-    return [directory / name for name in sorted((*REQUIRED, *ios))]
+    return [directory / name for name in sorted((*required(), *ios))]
 
 def main():
     parser = argparse.ArgumentParser()

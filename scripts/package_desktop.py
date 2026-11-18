@@ -11,6 +11,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/pxs/scripts"))
+sys.path.insert(0, str(ROOT / "scripts"))
+import names  # noqa: E402  release file names, the same rule in every application
 from build_id import display_version  # noqa: E402  the version the application carries in its name
 
 
@@ -76,7 +78,7 @@ def macos(build, output, arch):
     run("codesign", "--verify", "--deep", "--strict", app)
     smoke(app / "Contents/MacOS/DMXPulse")
     # ditto, not Python's zipfile: it keeps the symlinks inside the frameworks, which the signature depends on
-    archive = output / f"DMXPulse-macos-{arch}.zip"
+    archive = output / names.name("macos", arch, ".zip")
     archive.unlink(missing_ok=True)
     run("ditto", "-c", "-k", "--keepParent", app, archive)
     # What users get is the zip, so the checks run on its extracted content
@@ -105,7 +107,7 @@ def windows(build, output):
     notices(stage)
     smoke(stage / f"{name}.exe")
     version = os.environ.get("APP_VERSION", "0.0.0")
-    installer = output / "DMXPulse-windows-x86_64-Setup.exe"
+    installer = output / names.name("windows", "x64", "-Setup.exe")
     makensis = shutil.which("makensis") or str(Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "NSIS/makensis.exe")
     run(makensis, "/DPRODUCT=DMXPulse", f"/DAPP_VERSION={name.removeprefix('DMXPulse ')}", f"/DAPP_EXE={name}.exe",
         f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "third_party/pxs/packaging/windows.nsi")
