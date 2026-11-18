@@ -111,11 +111,11 @@ Use macOS, Xcode, the Qt 6.8.3 iOS kit and CMake's Xcode generator. CI builds th
 cmake --build build-ios --config Release --parallel 3
 ```
 
-The unsigned device app is wrapped in `Payload/DMXPulse.app` inside `DMXPulse-ios-unsigned.ipa` using `python3 scripts/package_ios.py /path/to/DMXPulse.app`. This IPA is provided for resignment and is not directly installable before Apple signing/provisioning. The custom plist includes the local-network usage description. Broadcast/multicast on physical iOS devices requires the approved `com.apple.developer.networking.multicast` entitlement in the provisioning profile. Unicast is available without that entitlement, subject to local-network permission.
+The unsigned device app is wrapped in `Payload/DMXPulse.app` inside `DMXPulse-ios-arm64-<version>-unsigned.ipa` using `python3 scripts/package_ios.py /path/to/DMXPulse.app`. This IPA is provided for resignment and is not directly installable before Apple signing/provisioning. The custom plist includes the local-network usage description. Broadcast/multicast on physical iOS devices requires the approved `com.apple.developer.networking.multicast` entitlement in the provisioning profile. Unicast is available without that entitlement, subject to local-network permission.
 
 ### Optional signed IPA
 
-Configure these Actions secrets to replace the unsigned IPA with `DMXPulse-ios.ipa` in a release:
+Configure these Actions secrets to replace the unsigned IPA with `DMXPulse-ios-arm64-<version>.ipa` in a release:
 
 | Secret | Value |
 |---|---|

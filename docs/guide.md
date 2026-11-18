@@ -6,10 +6,10 @@ Get the package matching your device from [Releases](https://github.com/PixelSte
 
 - **macOS:** download the zip for Apple Silicon (`arm64`) or Intel (`x86_64`), unzip it, and drag DMXPulse to Applications. The package includes Qt. Current automated packages are ad-hoc signed, not notarized; macOS may require you to approve opening the application in Privacy & Security.
 - **Windows:** extract the whole ZIP and launch `DMXPulse.exe`. Keep the DLLs and plugin folders alongside it.
-- **Linux:** install the `amd64.deb` with your graphical package installer or `sudo apt install ./DMXPulse-linux-amd64.deb`. Dependencies are installed by the package manager. A graphical desktop is required.
+- **Linux:** install the `amd64.deb` with your graphical package installer or `sudo apt install ./DMXPulse-linux-x64-<version>.deb`. Dependencies are installed by the package manager. A graphical desktop is required.
 - **Raspberry Pi:** use 64-bit Raspberry Pi OS Bookworm with a graphical desktop and install the `arm64.deb`. This package is not for 32-bit Raspberry Pi OS.
 - **Android:** install the APK after allowing installation from your chosen download source. A persistent release signing key is recommended for updates. Packages signed with an ephemeral CI test key may require uninstalling the previous package before upgrading, which clears its settings.
-- **iOS:** download the device IPA. `DMXPulse-ios-unsigned.ipa` contains the app under `Payload/DMXPulse.app` and must be signed/provisioned before installation; changing the archive format alone does not make it installable. When Apple signing is configured, the release contains `DMXPulse-ios.ipa` instead, with installation determined by its provisioning profile. Simulator builds are used only for CI tests and are not released. This is not an App Store listing.
+- **iOS:** download the device IPA. `DMXPulse-ios-arm64-<version>-unsigned.ipa` contains the app under `Payload/DMXPulse.app` and must be signed/provisioned before installation; changing the archive format alone does not make it installable. When Apple signing is configured, the release contains `DMXPulse-ios-arm64-<version>.ipa` instead, with installation determined by its provisioning profile. Simulator builds are used only for CI tests and are not released. This is not an App Store listing.
 
 ## Read a universe
 

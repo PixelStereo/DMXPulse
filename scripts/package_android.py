@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import names
 import base64
 import os
 from pathlib import Path
@@ -33,7 +34,7 @@ def main():
                 "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000")
         aligned = directory / "aligned.apk"
         run(tools / "zipalign", "-f", "-p", "4", candidates[0], aligned)
-        apk = output / "DMXPulse-android-arm64.apk"
+        apk = output / names.name("android", "arm64", ".apk")
         run(tools / "apksigner", "sign", "--ks", keystore, "--ks-key-alias", alias,
             "--ks-pass", "env:ANDROID_KEYSTORE_PASSWORD", "--key-pass", "env:ANDROID_KEY_PASSWORD",
             "--v4-signing-enabled", "false", "--out", apk, aligned)

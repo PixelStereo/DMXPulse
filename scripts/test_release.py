@@ -1,7 +1,13 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+import names
 from release import numeric_version, verify
+
+os.environ["RELEASE_TAG"] = "v1.2.3"
+MAC, WIN = names.name("macos", "arm64", ".zip"), names.name("windows", "x64", "-Setup.exe")
+IOS_UNSIGNED, IOS_SIGNED = names.name("ios", "arm64", "-unsigned.ipa"), names.name("ios", "arm64", ".ipa")
 
 class ReleaseTests(unittest.TestCase):
     def test_versions(self):
@@ -15,7 +21,7 @@ class ReleaseTests(unittest.TestCase):
             numeric_version("v999999.0.0", "1.1.0")
     def test_no_partial_release(self):
         with tempfile.TemporaryDirectory() as directory:
-            Path(directory, "DMXPulse-macos-arm64.zip").write_bytes(b"broken")
+            Path(directory, MAC).write_bytes(b"broken")
             with self.assertRaisesRegex(ValueError, "Missing release assets"):
                 verify(directory)
 
@@ -24,9 +30,9 @@ class PackageSetTests(unittest.TestCase):
     def make_release(self, directory):
         import plistlib
         import zipfile
-        from release import REQUIRED
+        from release import required
         root = Path(directory)
-        for name in REQUIRED:
+        for name in required():
             path = root / name
             if name.endswith('.exe'):
                 path.write_bytes(b'MZ installer')
@@ -39,7 +45,7 @@ class PackageSetTests(unittest.TestCase):
                 with zipfile.ZipFile(path, 'w') as archive:
                     for member in ('AndroidManifest.xml', 'classes.dex', 'lib/arm64-v8a/libDMXPulse.so'):
                         archive.writestr(member, b'content')
-        with zipfile.ZipFile(root / 'DMXPulse-ios-unsigned.ipa', 'w') as archive:
+        with zipfile.ZipFile(root / IOS_UNSIGNED, 'w') as archive:
             archive.writestr('Payload/DMXPulse.app/Info.plist', plistlib.dumps({
                 'CFBundleIdentifier': 'fr.pixelstereo.dmxpulse',
                 'CFBundleExecutable': 'DMXPulse',
@@ -55,7 +61,7 @@ class PackageSetTests(unittest.TestCase):
             self.assertEqual(set(root.iterdir()), set(files))
             (root / 'internal-build-log.txt').write_text('CI log')
             self.assertEqual(files, verify(root))
-            (root / 'DMXPulse-ios-unsigned.ipa').rename(root / 'DMXPulse-ios-device-unsigned.zip')
+            (root / IOS_UNSIGNED).rename(root / 'DMXPulse-ios-device-unsigned.zip')
             with self.assertRaisesRegex(ValueError, 'one iOS device IPA'):
                 verify(root)
 
@@ -66,7 +72,7 @@ class PackageSetTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Obsolete'):
                 verify(root)
             (root / 'DMXPulse-macos-arm64.dmg').unlink()
-            (root / 'DMXPulse-windows-x86_64-Setup.exe').write_bytes(b'corrupt')
+            (root / WIN).write_bytes(b'corrupt')
             with self.assertRaisesRegex(ValueError, 'Windows installer'):
                 verify(root)
 
@@ -74,10 +80,10 @@ class PackageSetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self.make_release(directory)
             import shutil
-            shutil.copy2(root / 'DMXPulse-ios-unsigned.ipa', root / 'DMXPulse-ios.ipa')
+            shutil.copy2(root / IOS_UNSIGNED, root / IOS_SIGNED)
             with self.assertRaisesRegex(ValueError, 'exactly one'):
                 verify(root)
-            (root / 'DMXPulse-ios-unsigned.ipa').unlink()
+            (root / IOS_UNSIGNED).unlink()
             with self.assertRaisesRegex(ValueError, 'profile/signature'):
                 verify(root)
 
@@ -86,13 +92,13 @@ class PackageSetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.make_release(directory)
             self.assertEqual(stale_assets([
-                'DMXPulse-ios.ipa', 'DMXPulse-ios-unsigned.ipa',
+                IOS_SIGNED, IOS_UNSIGNED,
                 'DMXPulse-macos-arm64.zip', 'DMXPulse-macos-arm64.dmg',
                 'DMXPulse-source.tar.gz', 'release.json', 'SHA256SUMS',
                 'Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
                 'DMXPulse-windows-x86_64.zip', 'custom-user-file.zip'], directory),
                 ['Android-NOTICES.md', 'DMXPulse-android-arm64.apk.idsig',
-                 'DMXPulse-ios.ipa', 'DMXPulse-macos-arm64.dmg',
+                 IOS_SIGNED, 'DMXPulse-macos-arm64.dmg', 'DMXPulse-macos-arm64.zip',
                  'DMXPulse-source.tar.gz', 'DMXPulse-windows-x86_64.zip', 'SHA256SUMS', 'release.json'])
 
 
