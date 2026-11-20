@@ -19,7 +19,7 @@ Enable **Active channels only** above the grid (also in **View**, shortcut **Ctr
 
 Input is marked stale after 2.5 seconds without a new packet. Last values remain visible; a stale source disappears after 60 seconds. Selecting a different universe does not convert output values into input.
 
-Desktop users can click a channel or navigate with the arrow keys. The universe list stays on the left and the output encoder and transmission controls stay on the right. There are no workspace tabs.
+Click a channel (or move with the arrow keys) to open its editor beside the cell. The universe list stays on the left; the destination, priority and **Enable transmission** sit in the toolbar. There are no workspace tabs.
 
 ## One view per universe
 
@@ -42,7 +42,7 @@ The journal keeps the latest **2,000 entries** in memory. Channel summaries show
 
 ## Prepare and send output
 
-Select a channel, then set **Output value** with the rotary encoder or number field. Drag vertically to change the level, or scroll in steps of four. Hold Shift for fine control (one step with the wheel). Use **−10 / −1 / +1 / +10** for precise adjustments, or the **0 / 25% / 50% / 75% / Full** presets. Arrow keys adjust by one, Page Up/Down by ten, Home sets zero and End sets full. Double-click the encoder to focus exact numeric entry. With **Follow received input** enabled, unedited channels follow the external received signal using the selected merge mode. Each edited channel overrides that baseline until **Release channel overrides** is pressed. DMXPulse's returned output never feeds this baseline, which prevents a self-feedback loop. Turn following off to use a manual output buffer. **Zero all channels** overrides the entire output buffer with zeros.
+Click a channel in the grid: a small editor opens beside its cell, with two bars. **Network** is the level the network carries on that channel (what the cell shows); when another device sends a different level than the merged result, a white tick marks the level of the other devices alone. **Output** is the level DMXPulse sends: click or drag on its bar, scroll in steps of four (one with Shift), or type it in the number field. Arrow keys adjust by one, Page Up/Down by ten, Home sets zero and End sets full; **0 / 50% / Full** are one click away. A channel you set shows an amber border and an amber bar along the bottom of its cell, as long as its level. **Release** lets that channel follow the network again; click the same cell again, press Esc or use ✕ to close the editor. With **Follow received input** (above the grid) enabled, unedited channels follow the external received signal using the selected merge mode, and each edited channel overrides that baseline until **Release overrides** is pressed. DMXPulse's returned output never feeds this baseline, which prevents a self-feedback loop. Turn following off to use a manual output buffer. **Zero all** overrides the entire output buffer with zeros.
 
 For Art-Net, enter a unicast or broadcast IPv4 destination. For sACN, the destination is the universe's multicast group; the priority control is enabled. Enable transmission to send all 512 channels approximately 30 times per second.
 

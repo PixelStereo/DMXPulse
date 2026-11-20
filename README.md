@@ -32,7 +32,7 @@ Switch on **Active channels only** to focus on received levels above zero. The v
 | Choose an interface, protocol and universe. | Merge received sources with HTP or LTP. | Follow input and override individual channels. |
 | Spot live, stale and missing input immediately. | Open network diagnostics when you need more detail. | Enable transmission explicitly, at approximately 30 Hz. |
 
-**The grid tells the truth.** It only shows data received through the network. Turning the encoder prepares the output; it changes the grid only when the resulting packets are actually received.
+**The grid tells the truth.** It only shows data received through the network. Setting a channel's output level in its editor prepares the output; it changes the grid only when the resulting packets are actually received.
 
 ## Take it where you work
 
@@ -53,11 +53,11 @@ macOS packages use an ad-hoc signature unless a distribution signing pipeline is
 2. **Choose a protocol and universe.** Art-Net starts at universe **0**; sACN starts at **1**.
 3. **Start listening.** A sole incoming universe is selected automatically; otherwise, select the universe to inspect.
 
-For a same-device loopback test, choose the local `127.0.0.1` adapter and use `127.0.0.1` as the Art-Net output destination. Prepare a channel value, then enable transmission. A returned packet is required before that value appears in the grid.
+For a same-device loopback test, choose the local `127.0.0.1` adapter and use `127.0.0.1` as the Art-Net output destination. Click a channel to prepare its value, then enable transmission. A returned packet is required before that value appears in the grid.
 
 ## Pick up where you left off
 
-Your adapter, universe, addresses, levels, selected channel and workspace layout are saved automatically. Startup options let you resume listening and optionally transmission. The universe list, monitor and output controls share one workspace. On phones and tablets, the panels stack vertically.
+Your adapter, universe, addresses, levels, selected channel and workspace layout are saved automatically. Startup options let you resume listening and optionally transmission. The universe list and the monitor share one workspace; click a channel to set its output level. On phones and tablets, the panels stack vertically.
 
 ## Small details that matter
 

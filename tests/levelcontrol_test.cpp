@@ -1,10 +1,9 @@
 #include "levelcontrol.h"
-#include <QPushButton>
 #include <QtTest>
 class LevelTest : public QObject {
   Q_OBJECT
 private slots:
-  void boundsAndSteps() {
+  void bounds() {
     LevelControl control;
     control.show();
     QSignalSpy changes(&control, &LevelControl::valueChanged);
@@ -12,12 +11,19 @@ private slots:
     QCOMPARE(control.value(), 255);
     control.setValue(255);
     QCOMPARE(changes.count(), 1);
-    control.findChild<QPushButton *>("levelStep-10")->click();
-    QCOMPARE(control.value(), 245);
-    control.findChild<QPushButton *>("levelPreset128")->click();
-    QCOMPARE(control.value(), 128);
     control.setValue(-10);
     QCOMPARE(control.value(), 0);
+  }
+  void networkIsReadOnly() {
+    LevelControl control;
+    control.setValue(40);
+    control.setNetwork(200, 120);
+    QCOMPARE(control.network(), 200);
+    QCOMPARE(control.others(), 120);
+    QCOMPARE(control.value(), 40);
+    control.setNetwork(-5);
+    QCOMPARE(control.network(), -1);
+    QCOMPARE(control.others(), -1);
   }
   void keyboard() {
     LevelControl control;
@@ -32,17 +38,26 @@ private slots:
     QTest::keyClick(&control, Qt::Key_Home);
     QCOMPARE(control.value(), 0);
   }
-  void drag() {
+  void clickAndDrag() {
     LevelControl control;
-    control.resize(220, 200);
+    control.resize(280, control.height());
     control.show();
-    control.setValue(100);
+    const int y = control.height() - 14; // the output bar is the lower one
+    // Left end: zero; right end of the bar: full
+    QTest::mouseClick(&control, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(74, y));
+    QCOMPARE(control.value(), 0);
+    QTest::mouseClick(&control, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(280 - 34 - 8, y));
+    QCOMPARE(control.value(), 255);
+    const int middle = 74 + (280 - 74 - 34 - 8) / 2;
     QTest::mousePress(&control, Qt::LeftButton, Qt::NoModifier,
-                      QPoint(110, 70));
-    QTest::mouseMove(&control, QPoint(110, 40));
+                      QPoint(middle, y));
+    QVERIFY(qAbs(control.value() - 128) <= 2);
+    QTest::mouseMove(&control, QPoint(74, y));
     QTest::mouseRelease(&control, Qt::LeftButton, Qt::NoModifier,
-                        QPoint(110, 40));
-    QCOMPARE(control.value(), 130);
+                        QPoint(74, y));
+    QCOMPARE(control.value(), 0);
   }
   void wheel() {
     LevelControl control;
