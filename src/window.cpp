@@ -51,6 +51,12 @@ public:
 
 Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     : artPort(artPort), sacnPort(sacnPort) {
+  monitor.setPorts(artPort, sacnPort);
+  tx.setPorts(artPort, sacnPort);
+  monitor.setTransmitter(&tx);
+  monitor.setOwnLabel("DMXPulse output");
+  connect(&monitor, &pxs::dmx::Monitor::logged, this, [this](const QString &line) { log(line); });
+  connect(&monitor, &pxs::dmx::Monitor::problem, this, [this](const QString &text) { status->setText(text); });
   settings =
       settingsFile.isEmpty()
           ? std::make_unique<QSettings>(QSettings::IniFormat,
@@ -60,7 +66,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   paintedInput.fill(-2);
   paintedOutput.fill(-2);
   columns = 32;
-  clock.start();
   setWindowTitle("DMXPulse");
   resize(1440, 900);
   auto root = new QWidget;
@@ -519,11 +524,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     else
       stop();
   });
-  connect(&art, &QUdpSocket::readyRead, this, [this] { receive(&art, false); });
-  connect(&artUnicast, &QUdpSocket::readyRead, this,
-          [this] { receive(&artUnicast, false); });
-  connect(&sacn, &QUdpSocket::readyRead, this,
-          [this] { receive(&sacn, true); });
   connect(protocol, &QComboBox::currentIndexChanged, this, [this] {
     autoSelectPending = false;
     endSend();
@@ -621,10 +621,9 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   connect(send, &QPushButton::toggled, this, [this](bool on) {
     if (!on) {
       if (sendTimer.isActive() && protocol->currentIndex())
-        for (int i = 0; i < 3; i++)
-          transmit(true);
+        tx.end(outputFrame(), nullptr);
       sendTimer.stop();
-      tx.close();
+      tx.stop();
       log("TX · Transmission stopped");
       protocol->setEnabled(true);
       universe->setEnabled(true);
@@ -642,13 +641,19 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
       status->setText("Enter a valid Art-Net destination IPv4 address.");
       return;
     }
-    network =
+    const auto network =
         QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
+    QString txError;
     if (!network.isValid() ||
         !network.flags().testFlag(QNetworkInterface::IsUp)) {
       send->setChecked(false);
       status->setText("Selected network interface is unavailable. Refresh the "
                       "adapter list.");
+      return;
+    }
+    if (!tx.start(network, &txError)) {
+      send->setChecked(false);
+      status->setText(txError);
       return;
     }
     protocol->setEnabled(false);
@@ -683,53 +688,26 @@ void Window::start() {
     status->setText("No active IPv4 interface. Click Refresh.");
     return;
   }
-  network = QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
-  if (!network.isValid() ||
-      !network.flags().testFlag(QNetworkInterface::IsUp)) {
+  const auto network =
+      QNetworkInterface::interfaceFromIndex(iface->currentData().toInt());
+  if (!network.isValid() || !network.flags().testFlag(QNetworkInterface::IsUp)) {
     listen->setChecked(false);
     status->setText(
         "Selected network interface is unavailable. Click Refresh.");
     return;
   }
-  auto flags = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
-  // A specific loopback listener avoids losing local unicast to a more
-  // specific listener owned by another lighting application.
-  QHostAddress artAddress =
-      network.flags().testFlag(QNetworkInterface::IsLoopBack)
-          ? QHostAddress(QHostAddress::LocalHost)
-          : QHostAddress(QHostAddress::AnyIPv4);
-  if (!art.bind(artAddress, artPort, flags) ||
-      !sacn.bind(QHostAddress::AnyIPv4, sacnPort, flags)) {
-    QString error = art.state() != QAbstractSocket::BoundState
-                        ? art.errorString()
-                        : sacn.errorString();
-    stop();
+  QString error;
+  if (!monitor.start(network, &error)) {
     listen->setChecked(false);
     status->setText("Could not start listening: " + error);
     return;
   }
-  if (!network.flags().testFlag(QNetworkInterface::IsLoopBack)) {
-    for (const auto &entry : network.addressEntries())
-      if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
-        if (!artUnicast.bind(entry.ip(), artPort, flags)) {
-          status->setText("Local unicast listener unavailable: " +
-                          artUnicast.errorString());
-        }
-        break;
-      }
-  }
-  art.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
-                      1024 * 1024);
-  sacn.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption,
-                       1024 * 1024);
-  datagrams = received = invalid = otherInterface = reordered = 0;
-  streams.clear();
   autoSelectPending = !send->isChecked();
   heldInput.clear();
   heldExternal.clear();
   iface->setEnabled(false);
   status->setText(QString("Listening on Art-Net %1:%2 · sACN UDP %3")
-                      .arg(art.localAddress().toString())
+                      .arg(monitor.artNetAddress())
                       .arg(artPort)
                       .arg(sacnPort));
   if (protocol->currentIndex())
@@ -737,142 +715,16 @@ void Window::start() {
   listen->setText("Stop listening");
 }
 void Window::stop() {
-  art.close();
-  artUnicast.close();
-  sacn.close();
-  groups.clear();
+  monitor.stop();
   iface->setEnabled(!send->isChecked());
   listen->setText("Start listening");
   if (status)
     status->setText("Input stopped");
 }
 void Window::join(int u) {
-  if (sacn.state() != QAbstractSocket::BoundState)
-    return;
-  for (int old : groups)
-    sacn.leaveMulticastGroup(
-        QHostAddress(QString("239.255.%1.%2").arg(old >> 8).arg(old & 255)),
-        network);
-  groups.clear();
-  if (u < 1)
-    return;
-  if (sacn.joinMulticastGroup(
-          QHostAddress(QString("239.255.%1.%2").arg(u >> 8).arg(u & 255)),
-          network))
-    groups.insert(u);
-  else
-    status->setText("Could not join multicast group: " + sacn.errorString());
-}
-void Window::receive(QUdpSocket *socket, bool isSacn) {
-  int budget = 256;
-  while (socket->hasPendingDatagrams() && budget--) {
-    auto d = socket->receiveDatagram();
-    if (!d.isValid())
-      break;
-    ++datagrams;
-    if (d.interfaceIndex() != 0 &&
-        d.interfaceIndex() != uint(network.index())) {
-      bool local = false;
-      for (auto entry : network.addressEntries())
-        if (entry.ip() == d.senderAddress())
-          local = true;
-      // Same-machine traffic may be delivered through the loopback interface.
-      if (d.senderAddress().isLoopback())
-        local = true;
-      if (!local) {
-        ++otherInterface;
-        continue;
-      }
-    }
-    Frame f;
-    if (!Protocol::decode(d.data(), isSacn, f)) {
-      invalid++;
-      log(QString("RX unsupported · %1:%2 · %3 bytes")
-              .arg(d.senderAddress().toString())
-              .arg(d.senderPort())
-              .arg(d.data().size()));
-      continue;
-    }
-    QString key = QString("%1/%2/%3/%4/%5")
-                      .arg(isSacn ? "sACN" : "Art-Net")
-                      .arg(f.universe)
-                      .arg(isSacn ? QString() : d.senderAddress().toString(),
-                           QString::fromLatin1(f.cid.toHex()))
-                      .arg(isSacn ? 0 : d.senderPort());
-    if (f.terminated) {
-      log(QString("RX · sACN · U%1 · %2 · CID %3 · stream terminated")
-              .arg(f.universe)
-              .arg(d.senderAddress().toString(),
-                   QString::fromLatin1(f.cid.toHex())));
-      streams.remove(key);
-      continue;
-    }
-    if (!streams.contains(key) && streams.size() >= 2048)
-      continue;
-    auto &s = streams[key];
-    if (s.packets && clock.elapsed() - s.seen < 2500) {
-      if (isSacn) {
-        int diff = int(f.sequence) - int(s.frame.sequence);
-        if (diff <= 0 && diff > -20) {
-          ++reordered;
-          continue;
-        }
-      } else if (f.sequence && s.frame.sequence) {
-        int diff = (int(f.sequence) - int(s.frame.sequence) + 255) % 255;
-        if (diff == 0 || diff > 127) {
-          ++reordered;
-          continue;
-        }
-      }
-    }
-    QStringList changes;
-    int changedCount = 0;
-    ++arrival;
-    for (int ch = 0; ch < 512; ++ch) {
-      if (!s.packets || s.frame.values[ch] != f.values[ch]) {
-        s.changed[ch] = arrival;
-        ++changedCount;
-        if (changes.size() < 8)
-          changes << QString("%1=%2").arg(ch + 1).arg(quint8(f.values[ch]));
-      }
-    }
-    s.frame = f;
-    s.ip = d.senderAddress().toString() +
-           (isSacn ? QString() : QString(":%1").arg(d.senderPort()));
-    s.own =
-        s.own || (isSacn ? f.cid == cid
-                         : d.senderPort() == lastTxPort && lastTxPort != 0 &&
-                               d.senderAddress() == lastTxAddress);
-    if (s.own)
-      s.frame.name = "DMXPulse output";
-    log(QString("RX · %1 · U%2 · %3%4 · seq %5%6 · %7")
-            .arg(isSacn ? "sACN" : "Art-Net")
-            .arg(f.universe)
-            .arg(s.ip,
-                 s.frame.name.isEmpty() ? QString() : " · " + s.frame.name)
-            .arg(f.sequence)
-            .arg(isSacn ? QString(" · priority %1 · CID %2")
-                              .arg(f.priority)
-                              .arg(QString::fromLatin1(f.cid.toHex()))
-                        : QString())
-            .arg(changes.isEmpty()
-                     ? "unchanged"
-                     : changes.join(", ") +
-                           (changedCount > 8
-                                ? QString(" … (%1 changed)").arg(changedCount)
-                                : QString())));
-    s.seen = clock.elapsed();
-    s.packets++;
-    received++;
-  }
-  // Drain in bounded batches, yielding to UI and timers between batches.
-  if (socket->hasPendingDatagrams() && !pendingDrains.contains(socket)) {
-    pendingDrains.insert(socket);
-    QTimer::singleShot(0, this, [this, socket, isSacn] {
-      pendingDrains.remove(socket);
-      receive(socket, isSacn);
-    });
-  }
+  QString error;
+  if (!monitor.listenTo(u, &error))
+    status->setText(error);
 }
 void Window::edit(int v) {
   prepareOutput();
@@ -917,40 +769,12 @@ void Window::syncMergeMode() {
   mergeMode->setCurrentIndex(universeMergeModes.value(currentUniverseKey(), 0));
 }
 QByteArray Window::merged(bool externalOnly, bool *live) {
-  if (live)
-    *live = false;
-  QList<const Stream *> candidates;
-  int highest = -1;
-  for (const auto &s : streams) {
-    if (s.frame.sacn != bool(protocol->currentIndex()) ||
-        s.frame.universe != universe->value() ||
-        clock.elapsed() - s.seen >= 2500 || (externalOnly && s.own))
-      continue;
-    if (s.frame.sacn && s.frame.priority < highest)
-      continue;
-    if (s.frame.sacn && s.frame.priority > highest) {
-      candidates.clear();
-      highest = s.frame.priority;
-    }
-    candidates << &s;
-  }
-  if (candidates.isEmpty())
-    return {};
-  if (live)
-    *live = true;
-  QByteArray result(512, 0);
-  const bool ltp = universeMergeModes.value(currentUniverseKey(), 0) == 1;
-  std::array<quint64, 512> latest{};
-  for (auto s : candidates)
-    for (int ch = 0; ch < 512; ++ch)
-      if (!ltp) {
-        if (quint8(s->frame.values[ch]) > quint8(result[ch]))
-          result[ch] = s->frame.values[ch];
-      } else if (s->changed[ch] >= latest[ch]) {
-        result[ch] = s->frame.values[ch];
-        latest[ch] = s->changed[ch];
-      }
-  return result;
+  return monitor.merged(
+      protocol->currentIndex(), universe->value(),
+      universeMergeModes.value(currentUniverseKey(), 0) == 1
+          ? pxs::dmx::MergeMode::LTP
+          : pxs::dmx::MergeMode::HTP,
+      externalOnly, live);
 }
 void Window::prepareOutput() {
   if (!followInput->isChecked())
@@ -1100,24 +924,21 @@ void Window::refreshEditor(const QByteArray &received, bool hasInput) {
   placeEditor();
 }
 void Window::render() {
-  auto now = clock.elapsed();
-  for (auto i = streams.begin(); i != streams.end();)
-    if (now - i->seen > 60000)
-      i = streams.erase(i);
-    else
-      ++i;
-  QMap<QString, QList<const Stream *>> universes;
+  monitor.prune();
+  const auto stats = monitor.stats();
+  const auto &streams = monitor.streams();
+  QMap<QString, QList<const pxs::dmx::Stream *>> universes;
   for (const auto &stream : streams)
     universes[QString("%1/%2")
                   .arg(int(stream.frame.sacn))
                   .arg(stream.frame.universe)]
         << &stream;
   if (autoSelectPending && listen->isChecked() && !send->isChecked()) {
-    const Stream *only = nullptr;
+    const pxs::dmx::Stream *only = nullptr;
     int liveUniverses = 0;
     for (const auto &group : universes) {
       for (auto stream : group) {
-        if (now - stream->seen < 2500) {
+        if (monitor.live(*stream)) {
           only = stream;
           ++liveUniverses;
           break;
@@ -1155,7 +976,7 @@ void Window::render() {
     int liveCount = 0;
     QStringList origins;
     for (auto stream : i.value()) {
-      if (now - stream->seen < 2500)
+      if (monitor.live(*stream))
         ++liveCount;
       origins << stream->ip + (stream->own ? " · DMXPulse output"
                                            : " · " + stream->frame.name);
@@ -1270,14 +1091,14 @@ void Window::render() {
   }
   QString hint;
   if (listen->isChecked()) {
-    if (!datagrams)
+    if (!stats.datagrams)
       hint = "No UDP packets. Check the sender destination and port sharing. "
              "For local Art-Net, select 127.0.0.1 and start listening after "
              "the sender.";
-    else if (!received && otherInterface)
+    else if (!stats.received && stats.otherInterface)
       hint = "Traffic arrived on a different interface. Select the adapter "
              "used by the sender.";
-    else if (!received)
+    else if (!stats.received)
       hint = "UDP traffic detected, but no supported DMX data packets.";
     else if (!hasInput)
       hint = "DMX sources detected. Select a universe to inspect its received "
@@ -1285,12 +1106,12 @@ void Window::render() {
   }
   diagnostics->setText(
       QString("UDP %1  ·  DMX %2  ·  Other interface %3  ·  Unsupported %4\n%5")
-          .arg(datagrams)
-          .arg(received)
-          .arg(otherInterface)
-          .arg(invalid)
+          .arg(stats.datagrams)
+          .arg(stats.received)
+          .arg(stats.otherInterface)
+          .arg(stats.invalid)
           .arg(hint) +
-      QString("\nSequence drops: %1 · Sent: %2").arg(reordered).arg(sent));
+      QString("\nSequence drops: %1 · Sent: %2").arg(stats.reordered).arg(sent));
   const QString badgeState = live ? "live" : hasInput ? "stale" : "idle";
   if (signal->property("inputState").toString() != badgeState) {
     signal->setProperty("inputState", badgeState);
@@ -1321,61 +1142,35 @@ void Window::render() {
                            "Unsupported: %4  ·  Output: %5")
                        .arg(live ? "Live" : "No signal / stale")
                        .arg(active)
-                       .arg(received)
-                       .arg(invalid)
+                       .arg(stats.received)
+                       .arg(stats.invalid)
                        .arg(sendTimer.isActive() ? "transmitting" : "off"));
 }
-void Window::transmit(bool terminated) {
-  prepareOutput();
-  Frame f;
+pxs::dmx::Frame Window::outputFrame() {
+  pxs::dmx::Frame f;
   f.sacn = protocol->currentIndex();
   f.universe = universe->value();
   f.values = output;
-  f.cid = cid;
   f.name = "DMXPulse";
   f.priority = priority->value();
-  sequence =
-      f.sacn ? quint8(sequence + 1) : (sequence == 255 ? 1 : sequence + 1);
-  f.sequence = sequence;
-  f.terminated = terminated;
-  QHostAddress target = f.sacn ? QHostAddress(QString("239.255.%1.%2")
-                                                  .arg(f.universe >> 8)
-                                                  .arg(f.universe & 255))
-                               : QHostAddress(destination->text());
-  if (tx.state() != QAbstractSocket::BoundState) {
-    QHostAddress local;
-    for (auto a : network.addressEntries())
-      if (a.ip().protocol() == QAbstractSocket::IPv4Protocol) {
-        local = a.ip();
-        break;
-      }
-    if (local.isNull() || !tx.bind(local, 0)) {
-      status->setText("Could not bind output to the selected interface");
-      if (!terminated)
-        endSend();
-      return;
-    }
-    tx.setMulticastInterface(network);
-    tx.setSocketOption(QAbstractSocket::MulticastTtlOption, 1);
-    tx.setSocketOption(QAbstractSocket::MulticastLoopbackOption, 1);
-  }
-  lastTxPort = tx.localPort();
-  lastTxAddress = tx.localAddress();
-  if (tx.writeDatagram(Protocol::encode(f), target,
-                       f.sacn ? sacnPort : artPort) < 0) {
-    if (terminated)
-      return;
-    status->setText("Transmission error: " + tx.errorString());
+  return f;
+}
+void Window::transmit() {
+  prepareOutput();
+  const auto f = outputFrame();
+  QString error;
+  if (!tx.send(f, QHostAddress(destination->text()), &error)) {
+    status->setText("Transmission error: " + error);
     endSend();
-  } else if (!terminated) {
-    ++sent;
-    log(QString("TX · %1 · U%2 · DMXPulse → %3:%4 · seq %5")
-            .arg(f.sacn ? "sACN" : "Art-Net")
-            .arg(f.universe)
-            .arg(target.toString())
-            .arg(f.sacn ? sacnPort : artPort)
-            .arg(f.sequence));
+    return;
   }
+  ++sent;
+  log(QString("TX · %1 · U%2 · DMXPulse → %3:%4 · seq %5")
+          .arg(f.sacn ? "sACN" : "Art-Net")
+          .arg(f.universe)
+          .arg(tx.lastTarget().toString())
+          .arg(tx.lastPort())
+          .arg(tx.lastSequence()));
 }
 
 void Window::updateControls() {
@@ -1399,7 +1194,7 @@ void Window::restoreSettings() {
   split->restoreState(s.value("window/splitterV3").toByteArray());
   auto savedCid = s.value("network/cid").toByteArray();
   if (savedCid.size() == 16)
-    cid = savedCid;
+    tx.setCid(savedCid);
   auto savedInterface = s.value("network/interface").toString();
   int index = iface->findData(savedInterface, Qt::UserRole + 1);
   if (index >= 0)
@@ -1462,7 +1257,7 @@ void Window::saveSettings() {
   s.setValue("window/geometry", saveGeometry());
   s.remove("window/splitterV2");
   s.setValue("window/splitterV3", split->saveState());
-  s.setValue("network/cid", cid);
+  s.setValue("network/cid", tx.cid());
   s.setValue("network/interface", iface->currentData(Qt::UserRole + 1));
   s.setValue("network/protocol", protocol->currentIndex());
   s.setValue("network/universe", universe->value());
