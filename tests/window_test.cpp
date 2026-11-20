@@ -108,6 +108,75 @@ private slots:
              QString("512\n1"));
     QCOMPARE(grid->currentRow(), 100 / grid->columnCount());
   }
+  void clickingAChannelOpensItsEditor() {
+    QTemporaryDir dir;
+    Window w(31454, 31568, dir.filePath("settings.ini"));
+    w.resize(1440, 900);
+    w.show();
+    auto grid = w.findChild<QTableWidget *>("channelGrid");
+    auto editor = w.findChild<QFrame *>("channelEditor");
+    auto encoder = w.findChild<LevelControl *>("outputEncoder");
+    QVERIFY(editor && encoder);
+    QVERIFY(!w.findChild<QWidget *>("outputPanel")); // no side panel any more
+    QTRY_VERIFY(!editor->isVisible());
+    auto click = [&](int row, int column) {
+      QTest::mouseClick(grid->viewport(), Qt::LeftButton, Qt::NoModifier,
+                        grid->visualRect(grid->model()->index(row, column))
+                            .center());
+      QCoreApplication::processEvents(); // the editor opens once the click ends
+    };
+    click(0, 4);
+    QTRY_VERIFY(editor->isVisible());
+    QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 5);
+    QCOMPARE(encoder->network(), -1); // nothing received yet
+    // Beside the cell, never over it
+    const QRect cell = grid->visualRect(grid->model()->index(0, 4));
+    const QPoint corner = grid->viewport()->mapTo(editor->parentWidget(),
+                                                  cell.topLeft());
+    QVERIFY(editor->x() >= corner.x() + cell.width() ||
+            editor->geometry().right() <= corner.x());
+    // The editor follows the next click, and sets the output of that channel
+    click(2, 6);
+    QTRY_VERIFY(editor->isVisible());
+    QCOMPARE(w.findChild<QSpinBox *>("channel")->value(), 71);
+    encoder->setValue(200);
+    QTRY_COMPARE(grid->item(2, 6)->data(Qt::UserRole + 1).toInt(), 200);
+    QVERIFY(grid->item(2, 6)->data(Qt::UserRole + 2).toBool());
+    QVERIFY(!grid->item(0, 4)->data(Qt::UserRole + 2).toBool());
+    w.findChild<QPushButton *>("releaseChannel")->click();
+    QTRY_VERIFY(!grid->item(2, 6)->data(Qt::UserRole + 2).toBool());
+    // Several channels: Shift-click extends the selection, one level sets them all
+    click(0, 4);
+    QTest::mouseClick(grid->viewport(), Qt::LeftButton, Qt::ShiftModifier,
+                      grid->visualRect(grid->model()->index(0, 6)).center());
+    QCoreApplication::processEvents();
+    QTRY_VERIFY(editor->isVisible());
+    QTRY_COMPARE(grid->selectionModel()->selectedIndexes().size(), 3);
+    QTRY_VERIFY(editor->findChild<QLabel *>("section")->text().contains("3 channels"));
+    encoder->setValue(100);
+    for (int column : {4, 5, 6})
+      QTRY_VERIFY(grid->item(0, column)->data(Qt::UserRole + 2).toBool());
+    QVERIFY(!grid->item(0, 7)->data(Qt::UserRole + 2).toBool());
+    w.findChild<QPushButton *>("releaseChannel")->click();
+    for (int column : {4, 5, 6})
+      QTRY_VERIFY(!grid->item(0, column)->data(Qt::UserRole + 2).toBool());
+    // With nothing received to follow, a released channel goes back to zero
+    QCOMPARE(w.findChild<QSpinBox *>("outputValue")->value(), 0);
+    click(0, 4); // a plain click goes back to one channel
+    QTRY_COMPARE(grid->selectionModel()->selectedIndexes().size(), 1);
+    // The same cell again, or Esc, closes it
+    click(2, 6);
+    QTRY_COMPARE(w.findChild<QSpinBox *>("channel")->value(), 71);
+    QTRY_VERIFY(editor->isVisible());
+    click(2, 6);
+    QTRY_VERIFY(!editor->isVisible());
+    click(1, 1);
+    QTRY_VERIFY(editor->isVisible());
+    QVERIFY(QTest::qWaitForWindowActive(&w));
+    QTRY_COMPARE(QApplication::focusWidget(), static_cast<QWidget *>(encoder));
+    QTest::keyClick(encoder, Qt::Key_Escape);
+    QTRY_VERIFY(!editor->isVisible());
+  }
   void receiveAndEdit() {
     // Exact duplicate unicast binds are intentionally indeterminate on Windows.
     // Keep the receive regression isolated there; exercise Unix port sharing
@@ -255,7 +324,6 @@ private slots:
         if (action->text() == "Universes")
           action->setChecked(false);
       }
-      w.findChild<QAction *>("outputToggle")->setChecked(false);
       w.findChild<QAction *>("activeChannelsOnly")->setChecked(true);
       w.findChild<QPushButton *>("listen")->setChecked(true);
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
@@ -280,7 +348,6 @@ private slots:
       QVERIFY(w.findChildren<QTabWidget *>().isEmpty());
       QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
       QVERIFY(!w.findChild<QPushButton *>("transmit")->isChecked());
-      QVERIFY(!w.findChild<QAction *>("outputToggle")->isChecked());
       QVERIFY(w.findChild<QAction *>("activeChannelsOnly")->isChecked());
       for (auto action : w.findChildren<QAction *>()) {
         if (action->text() == "Network diagnostics")
@@ -453,10 +520,8 @@ private slots:
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n101"));
     QCOMPARE(protocol->currentIndex(), int(sacn));
     QCOMPARE(universe->value(), 37);
-    auto panel = w.findChild<QWidget *>("outputPanel");
-    QCOMPARE(w.findChild<QLineEdit *>("destination")->isVisibleTo(panel),
-             !sacn);
-    QCOMPARE(w.findChild<QSpinBox *>("priority")->isVisibleTo(panel), sacn);
+    QCOMPARE(w.findChild<QLineEdit *>("destination")->isVisibleTo(&w), !sacn);
+    QCOMPARE(w.findChild<QSpinBox *>("priority")->isVisibleTo(&w), sacn);
     auto list = w.findChild<QListWidget *>("sources");
     QVERIFY(list->currentItem());
     QCOMPARE(list->currentItem()->data(Qt::UserRole).toString(),

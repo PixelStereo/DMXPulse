@@ -28,6 +28,18 @@ public:
     p->setPen(textColor);
     p->setFont(font);
     p->drawText(bottom, Qt::AlignCenter, lines.value(1));
+    if (index.data(Qt::UserRole + 2).toBool()) {
+      // This channel's output is set here: an amber bar along the bottom,
+      // as long as its level
+      const int out = index.data(Qt::UserRole + 1).toInt();
+      const QColor amber("#d9b36c");
+      QRect bar = option.rect.adjusted(1, 0, -1, -1);
+      bar.setTop(bar.bottom() - 3);
+      bar.setWidth(qMax(2, bar.width() * out / 255));
+      p->fillRect(bar, amber);
+      p->setPen(QPen(amber, 1));
+      p->drawRect(option.rect.adjusted(0, 0, -1, -1));
+    }
     if (option.state & QStyle::State_Selected) {
       p->setPen(QPen(QColor("#a8c4b8"), 2));
       p->drawRect(option.rect.adjusted(1, 1, -2, -2));
@@ -140,6 +152,25 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   toolbar->addWidget(field("Protocol", protocol), 0, 2);
   toolbar->addWidget(field("Universe", universe), 0, 3);
   toolbar->addWidget(field("Input", listen), 0, 4);
+  destination = new QLineEdit;
+  destination->setObjectName("destination");
+  destination->setPlaceholderText("IPv4 address, e.g. 127.0.0.1");
+  destination->setMinimumWidth(170);
+  priority = new QSpinBox;
+  priority->setObjectName("priority");
+  priority->setRange(0, 200);
+  priority->setValue(100);
+  send = new QPushButton("Enable transmission");
+  send->setObjectName("transmit");
+  send->setCheckable(true);
+  send->setMinimumWidth(170);
+  send->setToolTip("Send all 512 channels of this universe at about 30 Hz. "
+                   "Click a channel to set its output level.");
+  destinationField = field("Art-Net destination", destination);
+  priorityField = field("sACN priority", priority);
+  toolbar->addWidget(destinationField, 0, 5);
+  toolbar->addWidget(priorityField, 0, 5);
+  toolbar->addWidget(field("Output", send), 0, 6);
   layout->addLayout(toolbar);
   split = new QSplitter;
   split->setObjectName("workspace");
@@ -163,55 +194,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   sourceHint->setObjectName("muted");
   sourceHint->setWordWrap(true);
   sideLayout->addWidget(sourceHint);
-  outputPanel = new QFrame;
-  outputPanel->setObjectName("outputPanel");
-  outputPanel->setMinimumWidth(270);
-  outputPanel->setMaximumWidth(340);
-  auto editorWidget = new QWidget;
-  auto editorLayout = new QVBoxLayout(editorWidget);
-  editorLayout->setContentsMargins(14, 14, 14, 14);
-  editorLayout->setSpacing(10);
-  auto editorTitle = new QLabel("DMX output");
-  editorTitle->setObjectName("section");
-  editorLayout->addWidget(editorTitle);
-  channel = new QSpinBox;
-  channel->setObjectName("channel");
-  channel->setRange(1, 512);
-  inputValue = new QLabel("—");
-  inputValue->setObjectName("reading");
-  value = new QSpinBox;
-  value->setObjectName("outputValue");
-  value->setRange(0, 255);
-  auto inspector = new QHBoxLayout;
-  inspector->addWidget(field("Channel", channel));
-  inspector->addWidget(field("Received", inputValue), 1);
-  inspector->addWidget(field("Output", value));
-  editorLayout->addLayout(inspector);
-  encoder = new LevelControl;
-  editorLayout->addWidget(encoder);
-  followInput = new QCheckBox("Follow received input");
-  followInput->setObjectName("followInput");
-  followInput->setChecked(true);
-  followInput->setToolTip("Unedited channels follow received data. Your edits "
-                          "override individual channels.");
-  editorLayout->addWidget(followInput);
-  auto copy = new QPushButton("Release channel overrides");
-  copy->setObjectName("releaseOverrides");
-  copy->setToolTip(
-      "Release all edits and follow the external received signal again");
-  editorLayout->addWidget(copy);
-  auto zero = new QPushButton("Zero all channels");
-  zero->setObjectName("zeroOutput");
-  zero->setToolTip("Set all 512 output channels to zero");
-  editorLayout->addWidget(zero);
-  auto editHint = new QLabel(
-      "Edits change the output buffer. Enable transmission to send them.");
-  editHint->setObjectName("muted");
-  editHint->setWordWrap(true);
-  editorLayout->addWidget(editHint);
-  editorLayout->addStretch();
   split->addWidget(side);
-  auto canvas = new QWidget;
+  canvas = new QWidget;
   auto canvasLayout = new QVBoxLayout(canvas);
   canvasLayout->setContentsMargins(0, 0, 0, 0);
   canvasLayout->setSpacing(10);
@@ -268,6 +252,21 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   auto filterRow = new QHBoxLayout;
   filterRow->addWidget(filterButton);
   filterRow->addStretch();
+  followInput = new QCheckBox("Follow received input");
+  followInput->setObjectName("followInput");
+  followInput->setChecked(true);
+  followInput->setToolTip("Channels you have not set follow the received data. "
+                          "The ones you set keep their output level.");
+  filterRow->addWidget(followInput);
+  auto copy = new QPushButton("Release overrides");
+  copy->setObjectName("releaseOverrides");
+  copy->setToolTip(
+      "Release all edits and follow the external received signal again");
+  filterRow->addWidget(copy);
+  auto zero = new QPushButton("Zero all");
+  zero->setObjectName("zeroOutput");
+  zero->setToolTip("Set all 512 output channels to zero");
+  filterRow->addWidget(zero);
   canvasLayout->addLayout(filterRow);
   grid = new QTableWidget(512 / columns, columns);
   grid->setObjectName("channelGrid");
@@ -279,7 +278,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   grid->horizontalHeader()->setMinimumSectionSize(20);
   grid->verticalHeader()->setMinimumSectionSize(22);
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  grid->setSelectionMode(QAbstractItemView::SingleSelection);
+  grid->setSelectionMode(QAbstractItemView::ExtendedSelection);
   grid->setSelectionBehavior(QAbstractItemView::SelectItems);
   for (int i = 0; i < 512; ++i) {
     visibleChannels.append(i);
@@ -289,6 +288,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     grid->setItem(i / columns, i % columns, item);
   }
   grid->setCurrentCell(0, 0);
+  grid->viewport()->installEventFilter(this);
   gridStack = new QStackedWidget;
   gridStack->addWidget(grid);
   emptyGrid = new QLabel;
@@ -297,6 +297,64 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   emptyGrid->setWordWrap(true);
   gridStack->addWidget(emptyGrid);
   canvasLayout->addWidget(gridStack, 1);
+  // The editor of the clicked channel: a small card beside its cell, with the
+  // network's level above the level to send
+  editor = new QFrame(canvas);
+  editor->setObjectName("channelEditor");
+  editor->setFixedWidth(330);
+  editor->hide();
+  auto editorLayout = new QVBoxLayout(editor);
+  editorLayout->setContentsMargins(12, 10, 12, 12);
+  editorLayout->setSpacing(8);
+  auto editorHeader = new QHBoxLayout;
+  editorTitle = new QLabel("Channel");
+  editorTitle->setObjectName("section");
+  editorHeader->addWidget(editorTitle);
+  channel = new QSpinBox;
+  channel->setObjectName("channel");
+  channel->setRange(1, 512);
+  channel->setToolTip("Channel (DMX address)");
+  editorHeader->addWidget(channel);
+  editorHeader->addStretch();
+  editorState = new QLabel;
+  editorState->setObjectName("muted");
+  editorHeader->addWidget(editorState);
+  auto closeButton = new QToolButton;
+  closeButton->setText("✕");
+  closeButton->setToolTip("Close (Esc)");
+  closeButton->setCursor(Qt::PointingHandCursor);
+  connect(closeButton, &QToolButton::clicked, this, [this] { closeEditor(); });
+  editorHeader->addWidget(closeButton);
+  editorLayout->addLayout(editorHeader);
+  encoder = new LevelControl;
+  editorLayout->addWidget(encoder);
+  auto editorTools = new QHBoxLayout;
+  editorTools->setSpacing(6);
+  value = new QSpinBox;
+  value->setObjectName("outputValue");
+  value->setRange(0, 255);
+  value->setToolTip("Output level, 0–255");
+  editorTools->addWidget(value);
+  for (const auto &preset : QList<QPair<QString, int>>{
+           {"0", 0}, {"50%", 128}, {"Full", 255}}) {
+    auto button = new QPushButton(preset.first);
+    button->setObjectName(QString("levelPreset%1").arg(preset.second));
+    button->setCursor(Qt::PointingHandCursor);
+    button->setToolTip(QString("Set output to %1").arg(preset.second));
+    button->setStyleSheet("padding:6px 0;min-width:0");
+    connect(button, &QPushButton::clicked, this,
+            [this, level = preset.second] { value->setValue(level); });
+    editorTools->addWidget(button);
+  }
+  releaseChannel = new QPushButton("Release");
+  releaseChannel->setObjectName("releaseChannel");
+  releaseChannel->setToolTip("Let this channel follow the received signal again");
+  releaseChannel->setStyleSheet("padding:6px 10px;min-width:0");
+  editorTools->addWidget(releaseChannel);
+  editorLayout->addLayout(editorTools);
+  auto closeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), editor);
+  closeShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+  connect(closeShortcut, &QShortcut::activated, this, [this] { closeEditor(); });
   connect(activeChannelsOnly, &QAction::toggled, this, [this](bool active) {
     grid->verticalHeader()->setSectionResizeMode(
         active ? QHeaderView::Fixed : QHeaderView::Stretch);
@@ -306,39 +364,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   });
   split->addWidget(canvas);
   split->setStretchFactor(1, 1);
-  split->setSizes({210, 940, 290});
+  split->setSizes({210, 1230});
   layout->addWidget(split, 1);
-  auto outputScroll = new QScrollArea;
-  outputScroll->setFrameShape(QFrame::NoFrame);
-  outputScroll->setWidgetResizable(true);
-  outputScroll->setWidget(editorWidget);
-  auto transportLayout = new QVBoxLayout(outputPanel);
-  transportLayout->setContentsMargins(10, 10, 10, 10);
-  transportLayout->setSpacing(8);
-  transportLayout->addWidget(outputScroll, 1);
-  auto divider = new QFrame;
-  divider->setFrameShape(QFrame::HLine);
-  transportLayout->addWidget(divider);
-  destination = new QLineEdit;
-  destination->setObjectName("destination");
-  destination->setPlaceholderText("IPv4 address, e.g. 127.0.0.1");
-  priority = new QSpinBox;
-  priority->setObjectName("priority");
-  priority->setRange(0, 200);
-  priority->setValue(100);
-  send = new QPushButton("Enable transmission");
-  send->setObjectName("transmit");
-  send->setCheckable(true);
-  destinationField = field("Art-Net destination", destination);
-  transportLayout->addWidget(destinationField);
-  priorityField = field("sACN priority", priority);
-  transportLayout->addWidget(priorityField);
-  auto rate = new QLabel("512 channels · 30 Hz");
-  rate->setObjectName("muted");
-  transportLayout->addWidget(rate);
-  transportLayout->addWidget(send);
-  split->addWidget(outputPanel);
-  split->setSizes({200, 900, 300});
   logDock = new QDockWidget("Network log", this);
   logDock->setObjectName("networkLogDock");
   auto logPanel = new QWidget;
@@ -402,11 +429,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   showSources->setCheckable(true);
   showSources->setChecked(true);
   connect(showSources, &QAction::toggled, side, &QWidget::setVisible);
-  outputToggle = view->addAction("DMX output");
-  outputToggle->setObjectName("outputToggle");
-  outputToggle->setCheckable(true);
-  outputToggle->setChecked(true);
-  connect(outputToggle, &QAction::toggled, outputPanel, &QWidget::setVisible);
   view->addAction(logDock->toggleViewAction());
   showDiagnostics = view->addAction("Network diagnostics");
   showDiagnostics->setCheckable(true);
@@ -475,7 +497,8 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QListWidget { background:@base; border:1px solid @midlight; border-radius:5px; outline:0; }
     QListWidget::item { padding:10px 8px; border-bottom:1px solid @midlight; }
     QListWidget::item:selected { background:@light; color:@text; }
-    QFrame#outputPanel { background:@base; border:1px solid @midlight; border-radius:7px; }
+    QFrame#channelEditor { background:@window; border:1px solid @focus; border-radius:8px; }
+    QFrame#channelEditor QSpinBox { padding:4px 6px; min-height:15px; }
     QToolButton { border:0; padding:2px; color:@muted; }
     QToolButton#activeChannelsButton { border:1px solid @midlight; border-radius:5px; padding:6px 10px; }
     QToolButton#activeChannelsButton:hover { background:@button; }
@@ -540,23 +563,26 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
             selectUniverse(parts[0].toInt(), parts[1].toInt());
             render();
           });
-  connect(grid, &QTableWidget::cellClicked, this,
-          [this](int r, int c) {
-            if (auto item = grid->item(r, c))
-              if (item->data(Qt::UserRole).isValid())
-                channel->setValue(item->data(Qt::UserRole).toInt());
-          });
   connect(channel, &QSpinBox::valueChanged, this, [this] {
     updating = true;
     value->setValue(quint8(output[channel->value() - 1]));
     encoder->setValue(value->value());
     updating = false;
     syncChannelSelection();
+    if (editor->isVisible()) {
+      placeEditor();
+      render();
+    }
   });
   connect(grid->selectionModel(), &QItemSelectionModel::currentChanged, this,
           [this](const QModelIndex &current) {
             if (current.isValid() && current.data(Qt::UserRole).isValid())
               channel->setValue(current.data(Qt::UserRole).toInt());
+          });
+  connect(grid->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+          [this] {
+            if (editor->isVisible())
+              render();
           });
   connect(value, &QSpinBox::valueChanged, this, [this](int v) {
     if (!updating)
@@ -568,10 +594,21 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     value->selectAll();
   });
   connect(followInput, &QCheckBox::toggled, this, [this] { render(); });
+  connect(releaseChannel, &QPushButton::clicked, this, [this] {
+    const auto numbers = selectedChannels();
+    release(numbers);
+    log(numbers.size() == 1
+            ? QString("EDIT · Released channel %1").arg(numbers.first())
+            : QString("EDIT · Released %1 channels").arg(numbers.size()));
+    render();
+  });
   connect(copy, &QPushButton::clicked, this, [this] {
-    overrides.fill(false);
+    QVector<int> set;
+    for (int i = 0; i < 512; ++i)
+      if (overrides.testBit(i))
+        set << i + 1;
     followInput->setChecked(true);
-    prepareOutput();
+    release(set);
     log("EDIT · Released all channel overrides");
     render();
   });
@@ -839,8 +876,10 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
 }
 void Window::edit(int v) {
   prepareOutput();
-  overrides.setBit(channel->value() - 1);
-  output[channel->value() - 1] = char(v);
+  for (int number : selectedChannels()) {
+    overrides.setBit(number - 1);
+    output[number - 1] = char(v);
+  }
   encoder->setValue(v);
   render();
 }
@@ -936,8 +975,129 @@ void Window::syncChannelSelection() {
     grid->clearSelection();
     grid->setCurrentIndex(QModelIndex());
   } else {
-    grid->setCurrentCell(position / columns, position % columns);
+    const QModelIndex index =
+        grid->model()->index(position / columns, position % columns);
+    if (grid->selectionModel()->isSelected(index)) // inside a selection: keep it
+      grid->selectionModel()->setCurrentIndex(index,
+                                              QItemSelectionModel::NoUpdate);
+    else
+      grid->setCurrentIndex(index);
   }
+}
+// Back to the network: each channel follows the other devices again, or goes
+// to zero when there is nothing received to follow
+void Window::release(const QVector<int> &numbers) {
+  for (int number : numbers)
+    overrides.clearBit(number - 1);
+  prepareOutput();
+  const QString key = currentUniverseKey();
+  const bool baseline = followInput->isChecked() &&
+                        (!merged(true).isEmpty() ||
+                         heldExternal.value(key).size() == 512);
+  if (!baseline)
+    for (int number : numbers)
+      output[number - 1] = 0;
+}
+QVector<int> Window::selectedChannels() const {
+  QVector<int> numbers;
+  for (const auto &index : grid->selectionModel()->selectedIndexes())
+    if (index.data(Qt::UserRole).isValid())
+      numbers << index.data(Qt::UserRole).toInt();
+  std::sort(numbers.begin(), numbers.end());
+  if (numbers.isEmpty())
+    numbers << channel->value();
+  return numbers;
+}
+bool Window::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == grid->viewport() && !grid->isHidden()) {
+    auto *mouse = dynamic_cast<QMouseEvent *>(event);
+    if (mouse && mouse->button() == Qt::LeftButton) {
+      if (event->type() == QEvent::MouseButtonPress) {
+        // Clicking the only channel already being edited will close its editor
+        const QModelIndex under = grid->indexAt(mouse->position().toPoint());
+        const auto numbers = selectedChannels();
+        pressedOnlyOpen = editor->isVisible() && under.isValid() &&
+                          mouse->modifiers() == Qt::NoModifier &&
+                          numbers.size() == 1 &&
+                          numbers.first() == under.data(Qt::UserRole).toInt();
+      } else if (event->type() == QEvent::MouseButtonRelease) {
+        QTimer::singleShot(0, this, [this] {
+          const auto numbers = selectedChannels();
+          if (pressedOnlyOpen && numbers.size() == 1)
+            closeEditor();
+          else if (grid->selectionModel()->hasSelection())
+            openEditor(channel->value());
+          pressedOnlyOpen = false;
+        });
+      }
+    }
+  }
+  return QMainWindow::eventFilter(watched, event);
+}
+void Window::openEditor(int channelNumber) {
+  editorChannel = channelNumber;
+  editor->show();
+  editor->raise();
+  placeEditor();
+  encoder->setFocus();
+  render();
+}
+void Window::closeEditor() {
+  editorChannel = 0;
+  editor->hide();
+  grid->setFocus();
+}
+void Window::placeEditor() {
+  if (!editor->isVisible())
+    return;
+  const int position = visibleChannels.indexOf(channel->value() - 1);
+  if (position < 0) { // filtered out of the view: nothing to stand beside
+    closeEditor();
+    return;
+  }
+  const QRect cell = grid->visualRect(
+      grid->model()->index(position / columns, position % columns));
+  const QPoint corner = grid->viewport()->mapTo(canvas, cell.topLeft());
+  editor->adjustSize();
+  const int gap = 8;
+  int x = corner.x() + cell.width() + gap;
+  if (x + editor->width() > canvas->width())
+    x = corner.x() - editor->width() - gap;
+  int y = corner.y() + cell.height() / 2 - editor->height() / 2;
+  x = qBound(0, x, qMax(0, canvas->width() - editor->width()));
+  y = qBound(0, y, qMax(0, canvas->height() - editor->height()));
+  editor->move(x, y);
+}
+void Window::refreshEditor(const QByteArray &received, bool hasInput) {
+  if (!editor->isVisible())
+    return;
+  const auto numbers = selectedChannels();
+  const bool several = numbers.size() > 1;
+  channel->setVisible(!several);
+  editorTitle->setText(several ? QString("%1 channels").arg(numbers.size())
+                               : QString("Channel"));
+  // The network's level: the same on every selected channel, or none to show
+  int net = hasInput ? quint8(received[numbers.first() - 1]) : -1;
+  const QByteArray others = merged(true);
+  int external = others.size() == 512 ? quint8(others[numbers.first() - 1]) : -1;
+  bool anyOverride = false, allOverride = true;
+  for (int number : numbers) {
+    if (hasInput && quint8(received[number - 1]) != net)
+      net = -1;
+    if (others.size() == 512 && quint8(others[number - 1]) != external)
+      external = -1;
+    const bool set = overrides.testBit(number - 1);
+    anyOverride |= set;
+    allOverride &= set;
+  }
+  encoder->setNetwork(net, external);
+  editorState->setText(several && net < 0 && hasInput ? "Levels differ"
+                       : allOverride                  ? "● Set here"
+                       : anyOverride                  ? "● Partly set"
+                       : followInput->isChecked()     ? "Follows network"
+                                                      : "Not following");
+  releaseChannel->setEnabled(anyOverride);
+  placeEditor();
 }
 void Window::render() {
   auto now = clock.elapsed();
@@ -1084,7 +1244,13 @@ void Window::render() {
     const int i = shown[position];
     const int receivedValue = hasInput ? quint8(rx[i]) : -1;
     const int out = quint8(output[i]);
+    const bool overridden = overrides.testBit(i);
+    const int outState = out | (overridden ? 256 : 0);
     auto item = grid->item(position / columns, position % columns);
+    if (paintedOutput[i] != outState) {
+      item->setData(Qt::UserRole + 1, out);
+      item->setData(Qt::UserRole + 2, overridden);
+    }
     if (paintedInput[i] != receivedValue) {
       item->setText(QString("%1\n%2").arg(i + 1).arg(
           receivedValue < 0 ? QString("—") : QString::number(receivedValue)));
@@ -1092,7 +1258,7 @@ void Window::render() {
       item->setBackground(QColor(gray, gray, gray));
       item->setForeground(gray < 128 ? QColor(Qt::white) : QColor(Qt::black));
     }
-    if (paintedInput[i] != receivedValue || paintedOutput[i] != out)
+    if (paintedInput[i] != receivedValue || paintedOutput[i] != outState)
       item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
                            .arg(i + 1)
                            .arg(receivedValue < 0
@@ -1100,7 +1266,7 @@ void Window::render() {
                                     : QString::number(receivedValue))
                            .arg(out));
     paintedInput[i] = receivedValue;
-    paintedOutput[i] = out;
+    paintedOutput[i] = outState;
   }
   QString hint;
   if (listen->isChecked()) {
@@ -1137,15 +1303,11 @@ void Window::render() {
   universeTitle->setText(QString("Universe %1 · %2 received")
                              .arg(universe->value())
                              .arg(mergeMode->currentText()));
-  inputValue->setText(hasInput
-                          ? QString::number(quint8(rx[channel->value() - 1]))
-                          : QString("—"));
-  inputValue->setToolTip(live ? "Live received value"
-                              : "No live input; last value is retained");
   updating = true;
   value->setValue(quint8(output[channel->value() - 1]));
   encoder->setValue(value->value());
   updating = false;
+  refreshEditor(rx, hasInput);
   if (!pendingLog.isEmpty()) {
     bool atEnd = eventLog->verticalScrollBar()->value() >=
                  eventLog->verticalScrollBar()->maximum() - 2;
@@ -1234,7 +1396,7 @@ void Window::updateControls() {
 void Window::restoreSettings() {
   auto &s = *settings;
   restoreGeometry(s.value("window/geometry").toByteArray());
-  split->restoreState(s.value("window/splitterV2").toByteArray());
+  split->restoreState(s.value("window/splitterV3").toByteArray());
   auto savedCid = s.value("network/cid").toByteArray();
   if (savedCid.size() == 16)
     cid = savedCid;
@@ -1259,7 +1421,6 @@ void Window::restoreSettings() {
       s.value("view/activeChannelsOnly", false).toBool());
   showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
   showSources->setChecked(s.value("view/sources", true).toBool());
-  outputToggle->setChecked(s.value("view/output", true).toBool());
   s.beginGroup("view/mergeModes");
   for (const auto &key : s.allKeys()) {
     const auto parts = key.split('/');
@@ -1299,7 +1460,8 @@ void Window::restoreSettings() {
 void Window::saveSettings() {
   auto &s = *settings;
   s.setValue("window/geometry", saveGeometry());
-  s.setValue("window/splitterV2", split->saveState());
+  s.remove("window/splitterV2");
+  s.setValue("window/splitterV3", split->saveState());
   s.setValue("network/cid", cid);
   s.setValue("network/interface", iface->currentData(Qt::UserRole + 1));
   s.setValue("network/protocol", protocol->currentIndex());
@@ -1327,7 +1489,7 @@ void Window::saveSettings() {
   s.setValue("view/activeChannelsOnly", activeChannelsOnly->isChecked());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());
-  s.setValue("view/output", outputToggle->isChecked());
+  s.remove("view/output");
   s.setValue("startup/receive", resumeReceive->isChecked());
   s.setValue("startup/transmit", resumeSend->isChecked());
   s.setValue("session/listening", listen->isChecked());

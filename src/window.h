@@ -62,11 +62,24 @@ private:
   QAction *activeChannelsOnly;
   QVector<int> visibleChannels;
   void syncChannelSelection();
-  QLabel *status, *metrics, *signal, *universeTitle, *inputValue;
+  QLabel *status, *metrics, *signal, *universeTitle;
   QSplitter *split;
   int columns = 32;
-  QWidget *side, *outputPanel, *destinationField, *priorityField;
-  QAction *outputToggle;
+  QWidget *side, *destinationField, *priorityField;
+  // The editor that opens beside a clicked channel: the network's level and
+  // the level to send
+  QFrame *editor;
+  QLabel *editorTitle, *editorState;
+  QPushButton *releaseChannel;
+  QWidget *canvas;
+  int editorChannel = 0;
+  void openEditor(int channelNumber);
+  void closeEditor();
+  void placeEditor();
+  void release(const QVector<int> &numbers);
+  QVector<int> selectedChannels() const; // DMX numbers, ascending
+  bool pressedOnlyOpen = false;
+  void refreshEditor(const QByteArray &received, bool hasInput);
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;
   std::unique_ptr<QSettings> settings;
   void restoreSettings();
@@ -75,6 +88,7 @@ private:
 
 protected:
   void closeEvent(QCloseEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   LevelControl *encoder;

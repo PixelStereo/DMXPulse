@@ -1,51 +1,23 @@
 #include "levelcontrol.h"
 #include <QtWidgets>
+namespace {
+constexpr int labelWidth = 74, valueWidth = 34, rowHeight = 16, rowGap = 8;
+const QColor networkColor("#9aa7a1"), outputColor("#d9b36c"),
+    trackColor("#2a2e2c");
+} // namespace
 LevelControl::LevelControl(QWidget *parent) : QWidget(parent) {
   setObjectName("outputEncoder");
-  setAccessibleName("Output level encoder");
+  setAccessibleName("Output level");
   setAccessibleDescription(
-      "Drag vertically to adjust. Hold Shift for fine adjustment. Arrow keys "
-      "change by one; Page Up or Down by ten; Home sets zero; End sets full.");
+      "Click or drag to set the output level. Hold Shift for fine adjustment. "
+      "Arrow keys change by one; Page Up or Down by ten; Home sets zero; End "
+      "sets full.");
   setFocusPolicy(Qt::StrongFocus);
-  setMinimumHeight(196);
+  setFixedHeight(2 * rowHeight + rowGap + 8);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  setCursor(Qt::SizeVerCursor);
-  setToolTip("Drag vertically · Scroll to adjust · Shift for fine control · "
-             "Double-click to type");
-  auto layout = new QVBoxLayout(this);
-  layout->setContentsMargins(0, 120, 0, 0);
-  layout->setSpacing(6);
-  auto steps = new QHBoxLayout;
-  steps->setSpacing(4);
-  for (int step : {-10, -1, 1, 10}) {
-    auto button = new QPushButton(QString(step > 0 ? "+%1" : "%1").arg(step));
-    button->setObjectName(QString("levelStep%1").arg(step));
-    button->setCursor(Qt::PointingHandCursor);
-    button->setAutoRepeat(true);
-    button->setAutoRepeatDelay(350);
-    button->setAutoRepeatInterval(80);
-    button->setStyleSheet("padding:5px 0;min-width:0;min-height:18px");
-    connect(button, &QPushButton::clicked, this,
-            [this, step] { setValue(level + step); });
-    steps->addWidget(button);
-  }
-  layout->addLayout(steps);
-  auto presets = new QHBoxLayout;
-  presets->setSpacing(4);
-  const QList<QPair<QString, int>> values = {
-      {"0", 0}, {"25%", 64}, {"50%", 128}, {"75%", 191}, {"Full", 255}};
-  for (const auto &preset : values) {
-    auto button = new QPushButton(preset.first);
-    button->setObjectName(QString("levelPreset%1").arg(preset.second));
-    button->setCursor(Qt::PointingHandCursor);
-    button->setToolTip(QString("Set output to %1").arg(preset.second));
-    button->setStyleSheet(
-        "padding:5px 0;min-width:0;min-height:18px;font-size:11px");
-    connect(button, &QPushButton::clicked, this,
-            [this, preset] { setValue(preset.second); });
-    presets->addWidget(button);
-  }
-  layout->addLayout(presets);
+  setCursor(Qt::PointingHandCursor);
+  setToolTip("Click or drag the output bar · Scroll to adjust · Shift for fine "
+             "control · Double-click to type");
 }
 void LevelControl::setValue(int next) {
   next = qBound(0, next, 255);
@@ -55,62 +27,100 @@ void LevelControl::setValue(int next) {
   update();
   emit valueChanged(level);
 }
+void LevelControl::setNetwork(int next, int others) {
+  next = next < 0 ? -1 : qMin(next, 255);
+  others = others < 0 ? -1 : qMin(others, 255);
+  if (next == net && others == external)
+    return;
+  net = next;
+  external = others;
+  update();
+}
+QRectF LevelControl::track(int row) const {
+  const qreal top = 4 + row * (rowHeight + rowGap);
+  return {qreal(labelWidth), top,
+          qreal(width() - labelWidth - valueWidth - 8), qreal(rowHeight)};
+}
+int LevelControl::levelAt(qreal x) const {
+  const QRectF bar = track(1);
+  return qBound(0, qRound((x - bar.left()) / bar.width() * 255.0), 255);
+}
 void LevelControl::paintEvent(QPaintEvent *) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-  const QRectF ring(width() / 2.0 - 48, 3, 96, 96);
-  QPen pen(QColor("#383d3a"), 5, Qt::SolidLine, Qt::RoundCap);
-  painter.setPen(pen);
-  painter.drawArc(ring, 225 * 16, -270 * 16);
-  pen.setColor(QColor("#b7cfc1"));
-  painter.setPen(pen);
-  painter.drawArc(ring, 225 * 16, qRound(-270 * 16 * level / 255.0));
-  painter.setPen(Qt::NoPen);
-  painter.setBrush(QColor("#232725"));
-  painter.drawEllipse(ring.adjusted(8, 8, -8, -8));
   QFont font = this->font();
-  font.setPixelSize(30);
-  font.setWeight(QFont::DemiBold);
-  painter.setFont(font);
-  painter.setPen(QColor("#f0f4f1"));
-  painter.drawText(QRectF(0, 23, width(), 38), Qt::AlignCenter,
-                   QString::number(level));
-  font.setPixelSize(9);
-  font.setWeight(QFont::Normal);
-  font.setLetterSpacing(QFont::AbsoluteSpacing, 1.2);
-  painter.setFont(font);
-  painter.setPen(QColor("#a3b0a8"));
-  painter.drawText(QRectF(0, 60, width(), 15), Qt::AlignCenter, "OUTPUT");
   font.setPixelSize(10);
-  font.setLetterSpacing(QFont::AbsoluteSpacing, 0);
-  painter.setFont(font);
-  painter.setPen(QColor("#909995"));
-  painter.drawText(QRectF(0, 102, width(), 15), Qt::AlignCenter,
-                   "Drag · Scroll · Shift for fine");
+  font.setLetterSpacing(QFont::AbsoluteSpacing, 1.0);
+  const QColor muted("#8d9892");
+  for (int row = 0; row < 2; ++row) {
+    const bool output = row == 1;
+    const int shown = output ? level : net;
+    const QRectF bar = track(row);
+    painter.setFont(font);
+    painter.setPen(muted);
+    painter.drawText(QRectF(0, bar.top(), labelWidth - 6, bar.height()),
+                     Qt::AlignVCenter | Qt::AlignLeft,
+                     output ? "OUTPUT" : "NETWORK");
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(trackColor);
+    painter.drawRoundedRect(bar, 4, 4);
+    const QColor color = output ? outputColor : networkColor;
+    if (shown > 0) {
+      painter.setBrush(color);
+      painter.drawRoundedRect(
+          QRectF(bar.left(), bar.top(), qMax(8.0, bar.width() * shown / 255.0),
+                 bar.height()),
+          4, 4);
+    }
+    if (!output && external >= 0 && external != net) {
+      // Other devices alone: where the network would stand without this output
+      const qreal x = bar.left() + bar.width() * external / 255.0;
+      painter.setPen(QPen(QColor("#f0f4f1"), 2));
+      painter.drawLine(QPointF(x, bar.top() - 2), QPointF(x, bar.bottom() + 2));
+    }
+    QFont valueFont = this->font();
+    valueFont.setPixelSize(13);
+    valueFont.setWeight(QFont::DemiBold);
+    painter.setFont(valueFont);
+    painter.setPen(shown < 0 ? muted : color);
+    painter.drawText(QRectF(bar.right() + 6, bar.top(), valueWidth, bar.height()),
+                     Qt::AlignVCenter | Qt::AlignRight,
+                     shown < 0 ? QString("—") : QString::number(shown));
+  }
   if (hasFocus()) {
     painter.setPen(QPen(QColor("#7b9689"), 1, Qt::DotLine));
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(ring.adjusted(-7, -2, 7, 7), 8, 8);
+    painter.drawRoundedRect(track(1).adjusted(-3, -3, 3, 3), 6, 6);
   }
 }
 void LevelControl::mousePressEvent(QMouseEvent *event) {
-  if (event->button() == Qt::LeftButton && event->position().y() < 102) {
+  if (event->button() == Qt::LeftButton) {
     dragging = true;
-    dragY = event->position().y();
+    dragX = event->position().x();
     dragLevel = level;
     setFocus(Qt::MouseFocusReason);
+    // A plain click puts the output where it lands; Shift moves it relatively.
+    if (!event->modifiers().testFlag(Qt::ShiftModifier))
+      setValue(levelAt(dragX));
+    dragLevel = level;
     event->accept();
   } else
     QWidget::mousePressEvent(event);
 }
 void LevelControl::mouseMoveEvent(QMouseEvent *event) {
   if (dragging) {
-    qreal sensitivity =
-        event->modifiers().testFlag(Qt::ShiftModifier) ? 0.2 : 1.0;
-    dragLevel = qBound(
-        0.0, dragLevel + (dragY - event->position().y()) * sensitivity, 255.0);
-    dragY = event->position().y();
-    setValue(qRound(dragLevel));
+    if (event->modifiers().testFlag(Qt::ShiftModifier)) {
+      const qreal perPixel = 255.0 / track(1).width();
+      dragLevel = qBound(
+          0.0, dragLevel + (event->position().x() - dragX) * perPixel * 0.2,
+          255.0);
+      dragX = event->position().x();
+      setValue(qRound(dragLevel));
+    } else {
+      dragX = event->position().x();
+      setValue(levelAt(dragX));
+      dragLevel = level;
+    }
     event->accept();
   } else
     QWidget::mouseMoveEvent(event);
