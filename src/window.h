@@ -1,6 +1,6 @@
 #pragma once
 #include "levelcontrol.h"
-#include "protocol.h"
+#include <pxs/DmxNet.h>
 #include <QtNetwork>
 #include <QtWidgets>
 #include <array>
@@ -13,20 +13,10 @@ public:
   ~Window();
 
 private:
-  struct Stream {
-    Frame frame;
-    QString ip;
-    qint64 seen = 0;
-    quint64 packets = 0;
-    bool own = false;
-    std::array<quint64, 512> changed{};
-  };
   quint16 artPort, sacnPort;
-  QUdpSocket art, artUnicast, sacn, tx;
+  pxs::dmx::Monitor monitor;
+  pxs::dmx::Transmitter tx;
   QTimer refresh, sendTimer;
-  QElapsedTimer clock;
-  QMap<QString, Stream> streams;
-  quint64 arrival = 0;
   QMap<QString, QByteArray> heldInput, heldExternal;
   QBitArray overrides = QBitArray(512, false);
   QCheckBox *followInput;
@@ -38,19 +28,16 @@ private:
   QPlainTextEdit *eventLog;
   QStringList pendingLog;
   QCheckBox *pauseLog;
-  quint16 lastTxPort = 0;
-  QHostAddress lastTxAddress;
   QByteArray merged(bool externalOnly, bool *live = nullptr);
   void prepareOutput();
   void log(const QString &message);
   std::array<int, 512> paintedInput{}, paintedOutput{};
   QLabel *sourceHint;
-  quint64 sent = 0, reordered = 0;
-  QSet<QUdpSocket *> pendingDrains;
+  quint64 sent = 0;
   bool workspaceSaved = false;
   bool autoSelectPending = true;
   void selectUniverse(int protocolIndex, int address);
-  QByteArray output = QByteArray(512, 0), cid = QUuid::createUuid().toRfc4122();
+  QByteArray output = QByteArray(512, 0);
   QComboBox *iface, *protocol;
   QSpinBox *universe, *channel, *value, *priority;
   QLineEdit *destination;
@@ -92,18 +79,14 @@ protected:
 
 private:
   LevelControl *encoder;
-  QSet<int> groups;
-  QNetworkInterface network;
-  quint8 sequence = 0;
-  quint64 received = 0, invalid = 0, datagrams = 0, otherInterface = 0;
   QLabel *diagnostics;
   bool updating = false;
   void start();
   void stop();
-  void receive(QUdpSocket *, bool);
   void join(int);
   void render();
-  void transmit(bool terminated = false);
+  pxs::dmx::Frame outputFrame();
+  void transmit();
   void endSend();
   void edit(int);
 };

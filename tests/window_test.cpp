@@ -34,7 +34,7 @@ private slots:
     w.findChild<QPushButton *>("listen")->setChecked(true);
     QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
     QUdpSocket socket;
-    Frame f;
+    pxs::dmx::Frame f;
     f.sacn = sacn;
     f.universe = sacn ? 1 : 0;
     f.cid = QUuid::createUuid().toRfc4122();
@@ -44,7 +44,7 @@ private slots:
     f.values[511] = 1;
     auto publish = [&] {
       ++f.sequence;
-      socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+      socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost,
                            sacn ? 30568 : 30454);
     };
     publish();
@@ -209,7 +209,7 @@ private slots:
     listen->click();
     QVERIFY(listen->isChecked());
     QUdpSocket socket;
-    Frame f;
+    pxs::dmx::Frame f;
     f.universe = 0;
     f.sequence = 1;
     f.values = QByteArray(512, 0);
@@ -226,7 +226,7 @@ private slots:
         break;
       }
     QVERIFY(!local.isNull());
-    socket.writeDatagram(Protocol::encode(f), local, 16454);
+    socket.writeDatagram(pxs::dmx::encode(f), local, 16454);
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("231"), 2000);
     auto sources = w.findChild<QListWidget *>();
     QCOMPARE(sources->count(), 1);
@@ -278,21 +278,21 @@ private slots:
     f.cid = QUuid::createUuid().toRfc4122();
     f.sequence = 1;
     f.values[0] = char(99);
-    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    socket.writeDatagram(pxs::dmx::encode(f), local, 15568);
     QTRY_VERIFY_WITH_TIMEOUT(grid->item(0, 0)->text().contains("\n99"), 2000);
     // sACN accepts large forward sequence jumps and rollover, but ignores
     // recent duplicates.
     f.sequence = 200;
     f.values[0] = 100;
-    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    socket.writeDatagram(pxs::dmx::encode(f), local, 15568);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n100"));
     f.sequence = 1;
     f.values[0] = 101;
-    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    socket.writeDatagram(pxs::dmx::encode(f), local, 15568);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n101"));
     f.sequence = 0;
     f.values[0] = 102;
-    socket.writeDatagram(Protocol::encode(f), local, 15568);
+    socket.writeDatagram(pxs::dmx::encode(f), local, 15568);
     QTest::qWait(100);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n101"));
     listen->click();
@@ -404,27 +404,27 @@ private slots:
     w.findChild<QPushButton *>("listen")->setChecked(true);
     QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
     QUdpSocket socket;
-    Frame f;
+    pxs::dmx::Frame f;
     f.universe = 0;
     f.sequence = 0;
     f.values = QByteArray(512, 0);
     f.values[0] = 55;
     auto grid = w.findChild<QTableWidget *>();
-    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 19454);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n55"));
     f.sequence = 200;
     f.values[0] = 66;
-    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 19454);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n66"));
     f.sequence = 199;
     f.values[0] = 77;
-    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 19454);
     QTest::qWait(100);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n66"));
     f.sequence = 201;
     f.universe = 1;
     f.values[0] = 88;
-    socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+    socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 19454);
     QTRY_COMPARE(w.findChild<QListWidget *>()->count(), 2);
     w.findChild<QSpinBox *>("universe")->setValue(1);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n88"));
@@ -436,7 +436,7 @@ private slots:
     for (int i = 0; i < 400; ++i) {
       f.sequence = 0;
       f.values[0] = char(i % 256);
-      socket.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 19454);
+      socket.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 19454);
       if (i % 40 == 0)
         QCoreApplication::processEvents();
     }
@@ -470,11 +470,11 @@ private slots:
     w.findChild<QPushButton *>("listen")->setChecked(true);
     QVERIFY(w.findChild<QPushButton *>("listen")->isChecked());
     QUdpSocket other;
-    Frame f;
+    pxs::dmx::Frame f;
     f.universe = 0;
     f.sequence = 1;
     f.values = QByteArray(512, 0);
-    other.writeDatagram(Protocol::encode(f), address, 20454);
+    other.writeDatagram(pxs::dmx::encode(f), address, 20454);
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QSpinBox *>("channel")->setValue(268);
@@ -508,13 +508,13 @@ private slots:
     listen->setChecked(true);
     QVERIFY(listen->isChecked());
     QUdpSocket source;
-    Frame f;
+    pxs::dmx::Frame f;
     f.sacn = sacn;
     f.universe = 37;
     f.cid = QUuid::createUuid().toRfc4122();
     f.values = QByteArray(512, 0);
     f.values[0] = 101;
-    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+    source.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost,
                          sacn ? 25568 : 25454);
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n101"));
@@ -530,7 +530,7 @@ private slots:
     // Further arrivals must not keep moving the user's view.
     f.universe = 38;
     f.values[0] = 77;
-    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+    source.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost,
                          sacn ? 25568 : 25454);
     QTRY_COMPARE(list->count(), 2);
     QCOMPARE(universe->value(), 37);
@@ -539,7 +539,7 @@ private slots:
     listen->setChecked(false);
     listen->setChecked(true);
     f.universe = 39;
-    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost,
+    source.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost,
                          sacn ? 25568 : 25454);
     QTRY_COMPARE(universe->value(), 39);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n77"));
@@ -554,14 +554,14 @@ private slots:
         iface->setCurrentIndex(i);
     w.findChild<QPushButton *>("listen")->setChecked(true);
     QUdpSocket a, b;
-    Frame f;
+    pxs::dmx::Frame f;
     f.values = QByteArray(512, 0);
     for (int u : {1, 2}) {
       f.universe = u;
       f.values[0] = char(200);
-      a.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 27454);
+      a.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 27454);
       f.values[0] = 40;
-      b.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 27454);
+      b.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 27454);
     }
     auto list = w.findChild<QListWidget *>("sources");
     QTRY_COMPARE(list->count(), 2);
@@ -635,7 +635,7 @@ private slots:
       listen->setChecked(true);
       QVERIFY(listen->isChecked());
       QUdpSocket a, b;
-      Frame x, y;
+      pxs::dmx::Frame x, y;
       x.values = QByteArray(512, 0);
       x.values[0] = char(200);
       y = x;
@@ -644,9 +644,9 @@ private slots:
         universe->setValue(u);
         QCOMPARE(mode->currentIndex(), u);
         x.universe = y.universe = u;
-        a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 24454);
+        a.writeDatagram(pxs::dmx::encode(x), QHostAddress::LocalHost, 24454);
         QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n200"));
-        b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 24454);
+        b.writeDatagram(pxs::dmx::encode(y), QHostAddress::LocalHost, 24454);
         // Wait for B to be processed, even when HTP keeps the same level.
         QTRY_VERIFY(
             w.findChild<QPlainTextEdit *>("networkLog")
@@ -666,9 +666,9 @@ private slots:
       x.sacn = y.sacn = true;
       x.cid = QUuid::createUuid().toRfc4122();
       y.cid = QUuid::createUuid().toRfc4122();
-      a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 24568);
+      a.writeDatagram(pxs::dmx::encode(x), QHostAddress::LocalHost, 24568);
       QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n200"));
-      b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 24568);
+      b.writeDatagram(pxs::dmx::encode(y), QHostAddress::LocalHost, 24568);
       QTRY_VERIFY(w.findChild<QPlainTextEdit *>("networkLog")
                       ->toPlainText()
                       .contains(QString::fromLatin1(y.cid.toHex())));
@@ -713,15 +713,15 @@ private slots:
     auto grid = w.findChild<QTableWidget *>();
     auto mode = w.findChild<QComboBox *>("mergeMode");
     QUdpSocket a, b;
-    Frame x, y;
+    pxs::dmx::Frame x, y;
     x.values = QByteArray(512, 0);
     x.values[0] = char(200);
     x.values[1] = 50;
     y = x;
     y.values[0] = 40;
     y.values[1] = 100;
-    auto sendFrame = [&](QUdpSocket &socket, const Frame &frame) {
-      socket.writeDatagram(Protocol::encode(frame), QHostAddress::LocalHost,
+    auto sendFrame = [&](QUdpSocket &socket, const pxs::dmx::Frame &frame) {
+      socket.writeDatagram(pxs::dmx::encode(frame), QHostAddress::LocalHost,
                            22454);
     };
     sendFrame(a, x);
@@ -759,14 +759,14 @@ private slots:
     y.priority = 100;
     x.values[0] = 10;
     y.values[0] = char(250);
-    a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 22568);
-    b.writeDatagram(Protocol::encode(y), QHostAddress::LocalHost, 22568);
+    a.writeDatagram(pxs::dmx::encode(x), QHostAddress::LocalHost, 22568);
+    b.writeDatagram(pxs::dmx::encode(y), QHostAddress::LocalHost, 22568);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n10"));
     mode->setCurrentIndex(0);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n10"));
     // A terminated source immediately yields to the remaining one.
     x.terminated = true;
-    a.writeDatagram(Protocol::encode(x), QHostAddress::LocalHost, 22568);
+    a.writeDatagram(pxs::dmx::encode(x), QHostAddress::LocalHost, 22568);
     QTRY_COMPARE(grid->item(0, 0)->text(), QString("1\n250"));
   }
   void outputFollowsExternalWithoutFeedback() {
@@ -779,10 +779,10 @@ private slots:
     w.findChild<QComboBox *>("mergeMode")->setCurrentIndex(1);
     w.findChild<QPushButton *>("listen")->setChecked(true);
     QUdpSocket source;
-    Frame f;
+    pxs::dmx::Frame f;
     f.values = QByteArray(512, 0);
     f.values[4] = 96;
-    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 23454);
+    source.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 23454);
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(0, 4)->text(), QString("5\n96"));
     w.findChild<QSpinBox *>("channel")->setValue(268);
@@ -793,7 +793,7 @@ private slots:
     QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n76"));
     QCOMPARE(grid->item(0, 4)->text(), QString("5\n96"));
     f.values[4] = 20;
-    source.writeDatagram(Protocol::encode(f), QHostAddress::LocalHost, 23454);
+    source.writeDatagram(pxs::dmx::encode(f), QHostAddress::LocalHost, 23454);
     QTRY_VERIFY(grid->item(0, 4)->toolTip().contains("Output: 20"));
     QCOMPARE(grid->item(8, 11)->text(), QString("268\n76"));
     w.findChild<QPushButton *>("releaseOverrides")->click();
