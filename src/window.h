@@ -76,6 +76,9 @@ private:
   void openEditor(int channelNumber);
   void closeEditor();
   void placeEditor();
+  void release(const QVector<int> &numbers);
+  QVector<int> selectedChannels() const; // DMX numbers, ascending
+  bool pressedOnlyOpen = false;
   void refreshEditor(const QByteArray &received, bool hasInput);
   QAction *showDiagnostics, *showSources, *resumeReceive, *resumeSend;
   std::unique_ptr<QSettings> settings;
@@ -85,6 +88,7 @@ private:
 
 protected:
   void closeEvent(QCloseEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   LevelControl *encoder;

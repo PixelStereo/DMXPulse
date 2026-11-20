@@ -278,7 +278,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   grid->horizontalHeader()->setMinimumSectionSize(20);
   grid->verticalHeader()->setMinimumSectionSize(22);
   grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  grid->setSelectionMode(QAbstractItemView::SingleSelection);
+  grid->setSelectionMode(QAbstractItemView::ExtendedSelection);
   grid->setSelectionBehavior(QAbstractItemView::SelectItems);
   for (int i = 0; i < 512; ++i) {
     visibleChannels.append(i);
@@ -288,6 +288,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     grid->setItem(i / columns, i % columns, item);
   }
   grid->setCurrentCell(0, 0);
+  grid->viewport()->installEventFilter(this);
   gridStack = new QStackedWidget;
   gridStack->addWidget(grid);
   emptyGrid = new QLabel;
@@ -562,17 +563,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
             selectUniverse(parts[0].toInt(), parts[1].toInt());
             render();
           });
-  connect(grid, &QTableWidget::cellClicked, this, [this](int r, int c) {
-    if (auto item = grid->item(r, c))
-      if (item->data(Qt::UserRole).isValid()) {
-        const int number = item->data(Qt::UserRole).toInt();
-        channel->setValue(number);
-        if (editor->isVisible() && editorChannel == number)
-          closeEditor();
-        else
-          openEditor(number);
-      }
-  });
   connect(channel, &QSpinBox::valueChanged, this, [this] {
     updating = true;
     value->setValue(quint8(output[channel->value() - 1]));
@@ -589,6 +579,11 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
             if (current.isValid() && current.data(Qt::UserRole).isValid())
               channel->setValue(current.data(Qt::UserRole).toInt());
           });
+  connect(grid->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+          [this] {
+            if (editor->isVisible())
+              render();
+          });
   connect(value, &QSpinBox::valueChanged, this, [this](int v) {
     if (!updating)
       edit(v);
@@ -600,15 +595,20 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   });
   connect(followInput, &QCheckBox::toggled, this, [this] { render(); });
   connect(releaseChannel, &QPushButton::clicked, this, [this] {
-    overrides.clearBit(channel->value() - 1);
-    prepareOutput();
-    log(QString("EDIT · Released channel %1").arg(channel->value()));
+    const auto numbers = selectedChannels();
+    release(numbers);
+    log(numbers.size() == 1
+            ? QString("EDIT · Released channel %1").arg(numbers.first())
+            : QString("EDIT · Released %1 channels").arg(numbers.size()));
     render();
   });
   connect(copy, &QPushButton::clicked, this, [this] {
-    overrides.fill(false);
+    QVector<int> set;
+    for (int i = 0; i < 512; ++i)
+      if (overrides.testBit(i))
+        set << i + 1;
     followInput->setChecked(true);
-    prepareOutput();
+    release(set);
     log("EDIT · Released all channel overrides");
     render();
   });
@@ -876,8 +876,10 @@ void Window::receive(QUdpSocket *socket, bool isSacn) {
 }
 void Window::edit(int v) {
   prepareOutput();
-  overrides.setBit(channel->value() - 1);
-  output[channel->value() - 1] = char(v);
+  for (int number : selectedChannels()) {
+    overrides.setBit(number - 1);
+    output[number - 1] = char(v);
+  }
   encoder->setValue(v);
   render();
 }
@@ -973,8 +975,64 @@ void Window::syncChannelSelection() {
     grid->clearSelection();
     grid->setCurrentIndex(QModelIndex());
   } else {
-    grid->setCurrentCell(position / columns, position % columns);
+    const QModelIndex index =
+        grid->model()->index(position / columns, position % columns);
+    if (grid->selectionModel()->isSelected(index)) // inside a selection: keep it
+      grid->selectionModel()->setCurrentIndex(index,
+                                              QItemSelectionModel::NoUpdate);
+    else
+      grid->setCurrentIndex(index);
   }
+}
+// Back to the network: each channel follows the other devices again, or goes
+// to zero when there is nothing received to follow
+void Window::release(const QVector<int> &numbers) {
+  for (int number : numbers)
+    overrides.clearBit(number - 1);
+  prepareOutput();
+  const QString key = currentUniverseKey();
+  const bool baseline = followInput->isChecked() &&
+                        (!merged(true).isEmpty() ||
+                         heldExternal.value(key).size() == 512);
+  if (!baseline)
+    for (int number : numbers)
+      output[number - 1] = 0;
+}
+QVector<int> Window::selectedChannels() const {
+  QVector<int> numbers;
+  for (const auto &index : grid->selectionModel()->selectedIndexes())
+    if (index.data(Qt::UserRole).isValid())
+      numbers << index.data(Qt::UserRole).toInt();
+  std::sort(numbers.begin(), numbers.end());
+  if (numbers.isEmpty())
+    numbers << channel->value();
+  return numbers;
+}
+bool Window::eventFilter(QObject *watched, QEvent *event) {
+  if (watched == grid->viewport() && !grid->isHidden()) {
+    auto *mouse = dynamic_cast<QMouseEvent *>(event);
+    if (mouse && mouse->button() == Qt::LeftButton) {
+      if (event->type() == QEvent::MouseButtonPress) {
+        // Clicking the only channel already being edited will close its editor
+        const QModelIndex under = grid->indexAt(mouse->position().toPoint());
+        const auto numbers = selectedChannels();
+        pressedOnlyOpen = editor->isVisible() && under.isValid() &&
+                          mouse->modifiers() == Qt::NoModifier &&
+                          numbers.size() == 1 &&
+                          numbers.first() == under.data(Qt::UserRole).toInt();
+      } else if (event->type() == QEvent::MouseButtonRelease) {
+        QTimer::singleShot(0, this, [this] {
+          const auto numbers = selectedChannels();
+          if (pressedOnlyOpen && numbers.size() == 1)
+            closeEditor();
+          else if (grid->selectionModel()->hasSelection())
+            openEditor(channel->value());
+          pressedOnlyOpen = false;
+        });
+      }
+    }
+  }
+  return QMainWindow::eventFilter(watched, event);
 }
 void Window::openEditor(int channelNumber) {
   editorChannel = channelNumber;
@@ -1013,14 +1071,32 @@ void Window::placeEditor() {
 void Window::refreshEditor(const QByteArray &received, bool hasInput) {
   if (!editor->isVisible())
     return;
-  const int ch = channel->value() - 1;
+  const auto numbers = selectedChannels();
+  const bool several = numbers.size() > 1;
+  channel->setVisible(!several);
+  editorTitle->setText(several ? QString("%1 channels").arg(numbers.size())
+                               : QString("Channel"));
+  // The network's level: the same on every selected channel, or none to show
+  int net = hasInput ? quint8(received[numbers.first() - 1]) : -1;
   const QByteArray others = merged(true);
-  encoder->setNetwork(hasInput ? quint8(received[ch]) : -1,
-                      others.size() == 512 ? quint8(others[ch]) : -1);
-  editorState->setText(overrides.testBit(ch) ? "● Set here"
-                       : followInput->isChecked() ? "Follows network"
-                                                  : "Not following");
-  releaseChannel->setEnabled(overrides.testBit(ch));
+  int external = others.size() == 512 ? quint8(others[numbers.first() - 1]) : -1;
+  bool anyOverride = false, allOverride = true;
+  for (int number : numbers) {
+    if (hasInput && quint8(received[number - 1]) != net)
+      net = -1;
+    if (others.size() == 512 && quint8(others[number - 1]) != external)
+      external = -1;
+    const bool set = overrides.testBit(number - 1);
+    anyOverride |= set;
+    allOverride &= set;
+  }
+  encoder->setNetwork(net, external);
+  editorState->setText(several && net < 0 && hasInput ? "Levels differ"
+                       : allOverride                  ? "● Set here"
+                       : anyOverride                  ? "● Partly set"
+                       : followInput->isChecked()     ? "Follows network"
+                                                      : "Not following");
+  releaseChannel->setEnabled(anyOverride);
   placeEditor();
 }
 void Window::render() {
