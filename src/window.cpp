@@ -1,53 +1,5 @@
 #include <pxs/Theme.h>
 #include "window.h"
-namespace {
-
-class ChannelDelegate : public QStyledItemDelegate {
-public:
-  using QStyledItemDelegate::QStyledItemDelegate;
-  void paint(QPainter *p, const QStyleOptionViewItem &option,
-             const QModelIndex &index) const override {
-    if (!index.data(Qt::UserRole).isValid())
-      return;
-    p->save();
-    p->fillRect(option.rect, index.data(Qt::BackgroundRole).value<QBrush>());
-    const auto textColor =
-        index.data(Qt::ForegroundRole).value<QBrush>().color();
-    QColor channelColor = textColor;
-    channelColor.setAlpha(190);
-    p->setPen(channelColor);
-    const auto lines = index.data().toString().split('\n');
-    QRect top = option.rect.adjusted(1, 1, -1, -1);
-    top.setHeight(top.height() / 2);
-    QRect bottom = top.translated(0, top.height());
-    QFont font = option.font;
-    font.setPixelSize(qBound(10, top.height() - 2, 14));
-    p->setFont(font);
-    p->drawText(top, Qt::AlignCenter, lines.value(0));
-    font.setBold(true);
-    p->setPen(textColor);
-    p->setFont(font);
-    p->drawText(bottom, Qt::AlignCenter, lines.value(1));
-    if (index.data(Qt::UserRole + 2).toBool()) {
-      // This channel's output is set here: an amber bar along the bottom,
-      // as long as its level
-      const int out = index.data(Qt::UserRole + 1).toInt();
-      const QColor amber("#d9b36c");
-      QRect bar = option.rect.adjusted(1, 0, -1, -1);
-      bar.setTop(bar.bottom() - 3);
-      bar.setWidth(qMax(2, bar.width() * out / 255));
-      p->fillRect(bar, amber);
-      p->setPen(QPen(amber, 1));
-      p->drawRect(option.rect.adjusted(0, 0, -1, -1));
-    }
-    if (option.state & QStyle::State_Selected) {
-      p->setPen(QPen(QColor("#a8c4b8"), 2));
-      p->drawRect(option.rect.adjusted(1, 1, -2, -2));
-    }
-    p->restore();
-  }
-};
-} // namespace
 
 Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     : artPort(artPort), sacnPort(sacnPort) {
@@ -63,9 +15,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
                                         QSettings::UserScope, "PixelStereo",
                                         "DMXPulse")
           : std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
-  paintedInput.fill(-2);
-  paintedOutput.fill(-2);
-  columns = 32;
   setWindowTitle("DMXPulse");
   resize(1440, 900);
   auto root = new QWidget;
@@ -200,7 +149,7 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   sourceHint->setWordWrap(true);
   sideLayout->addWidget(sourceHint);
   split->addWidget(side);
-  canvas = new QWidget;
+  auto canvas = new QWidget;
   auto canvasLayout = new QVBoxLayout(canvas);
   canvasLayout->setContentsMargins(0, 0, 0, 0);
   canvasLayout->setSpacing(10);
@@ -273,98 +222,10 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
   zero->setToolTip("Set all 512 output channels to zero");
   filterRow->addWidget(zero);
   canvasLayout->addLayout(filterRow);
-  grid = new QTableWidget(512 / columns, columns);
-  grid->setObjectName("channelGrid");
-  grid->horizontalHeader()->hide();
-  grid->verticalHeader()->hide();
-  grid->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  grid->verticalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-  grid->setItemDelegate(new ChannelDelegate(grid));
-  grid->horizontalHeader()->setMinimumSectionSize(20);
-  grid->verticalHeader()->setMinimumSectionSize(22);
-  grid->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  grid->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  grid->setSelectionBehavior(QAbstractItemView::SelectItems);
-  for (int i = 0; i < 512; ++i) {
-    visibleChannels.append(i);
-    auto item = new QTableWidgetItem;
-    item->setData(Qt::UserRole, i + 1);
-    item->setTextAlignment(Qt::AlignCenter);
-    grid->setItem(i / columns, i % columns, item);
-  }
-  grid->setCurrentCell(0, 0);
-  grid->viewport()->installEventFilter(this);
-  gridStack = new QStackedWidget;
-  gridStack->addWidget(grid);
-  emptyGrid = new QLabel;
-  emptyGrid->setObjectName("emptyChannelGrid");
-  emptyGrid->setAlignment(Qt::AlignCenter);
-  emptyGrid->setWordWrap(true);
-  gridStack->addWidget(emptyGrid);
-  canvasLayout->addWidget(gridStack, 1);
-  // The editor of the clicked channel: a small card beside its cell, with the
-  // network's level above the level to send
-  editor = new QFrame(canvas);
-  editor->setObjectName("channelEditor");
-  editor->setFixedWidth(330);
-  editor->hide();
-  auto editorLayout = new QVBoxLayout(editor);
-  editorLayout->setContentsMargins(12, 10, 12, 12);
-  editorLayout->setSpacing(8);
-  auto editorHeader = new QHBoxLayout;
-  editorTitle = new QLabel("Channel");
-  editorTitle->setObjectName("section");
-  editorHeader->addWidget(editorTitle);
-  channel = new QSpinBox;
-  channel->setObjectName("channel");
-  channel->setRange(1, 512);
-  channel->setToolTip("Channel (DMX address)");
-  editorHeader->addWidget(channel);
-  editorHeader->addStretch();
-  editorState = new QLabel;
-  editorState->setObjectName("muted");
-  editorHeader->addWidget(editorState);
-  auto closeButton = new QToolButton;
-  closeButton->setText("✕");
-  closeButton->setToolTip("Close (Esc)");
-  closeButton->setCursor(Qt::PointingHandCursor);
-  connect(closeButton, &QToolButton::clicked, this, [this] { closeEditor(); });
-  editorHeader->addWidget(closeButton);
-  editorLayout->addLayout(editorHeader);
-  encoder = new LevelControl;
-  editorLayout->addWidget(encoder);
-  auto editorTools = new QHBoxLayout;
-  editorTools->setSpacing(6);
-  value = new QSpinBox;
-  value->setObjectName("outputValue");
-  value->setRange(0, 255);
-  value->setToolTip("Output level, 0–255");
-  editorTools->addWidget(value);
-  for (const auto &preset : QList<QPair<QString, int>>{
-           {"0", 0}, {"50%", 128}, {"Full", 255}}) {
-    auto button = new QPushButton(preset.first);
-    button->setObjectName(QString("levelPreset%1").arg(preset.second));
-    button->setCursor(Qt::PointingHandCursor);
-    button->setToolTip(QString("Set output to %1").arg(preset.second));
-    button->setStyleSheet("padding:6px 0;min-width:0");
-    connect(button, &QPushButton::clicked, this,
-            [this, level = preset.second] { value->setValue(level); });
-    editorTools->addWidget(button);
-  }
-  releaseChannel = new QPushButton("Release");
-  releaseChannel->setObjectName("releaseChannel");
-  releaseChannel->setToolTip("Let this channel follow the received signal again");
-  releaseChannel->setStyleSheet("padding:6px 10px;min-width:0");
-  editorTools->addWidget(releaseChannel);
-  editorLayout->addLayout(editorTools);
-  auto closeShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), editor);
-  closeShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-  connect(closeShortcut, &QShortcut::activated, this, [this] { closeEditor(); });
+  grid = new pxs::dmx::ChannelGrid;
+  canvasLayout->addWidget(grid, 1);
   connect(activeChannelsOnly, &QAction::toggled, this, [this](bool active) {
-    grid->verticalHeader()->setSectionResizeMode(
-        active ? QHeaderView::Fixed : QHeaderView::Stretch);
-    if (active)
-      grid->verticalHeader()->setDefaultSectionSize(48);
+    grid->setActiveOnly(active);
     render();
   });
   split->addWidget(canvas);
@@ -502,8 +363,6 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
     QListWidget { background:@base; border:1px solid @midlight; border-radius:5px; outline:0; }
     QListWidget::item { padding:10px 8px; border-bottom:1px solid @midlight; }
     QListWidget::item:selected { background:@light; color:@text; }
-    QFrame#channelEditor { background:@window; border:1px solid @focus; border-radius:8px; }
-    QFrame#channelEditor QSpinBox { padding:4px 6px; min-height:15px; }
     QToolButton { border:0; padding:2px; color:@muted; }
     QToolButton#activeChannelsButton { border:1px solid @midlight; border-radius:5px; padding:6px 10px; }
     QToolButton#activeChannelsButton:hover { background:@button; }
@@ -563,45 +422,18 @@ Window::Window(quint16 artPort, quint16 sacnPort, const QString &settingsFile)
             selectUniverse(parts[0].toInt(), parts[1].toInt());
             render();
           });
-  connect(channel, &QSpinBox::valueChanged, this, [this] {
-    updating = true;
-    value->setValue(quint8(output[channel->value() - 1]));
-    encoder->setValue(value->value());
-    updating = false;
-    syncChannelSelection();
-    if (editor->isVisible()) {
-      placeEditor();
-      render();
-    }
-  });
-  connect(grid->selectionModel(), &QItemSelectionModel::currentChanged, this,
-          [this](const QModelIndex &current) {
-            if (current.isValid() && current.data(Qt::UserRole).isValid())
-              channel->setValue(current.data(Qt::UserRole).toInt());
+  connect(grid, &pxs::dmx::ChannelGrid::outputChosen, this,
+          &Window::applyOutput);
+  connect(grid, &pxs::dmx::ChannelGrid::releaseRequested, this,
+          [this](const QVector<int> &numbers) {
+            release(numbers);
+            log(numbers.size() == 1
+                    ? QString("EDIT · Released channel %1").arg(numbers.first())
+                    : QString("EDIT · Released %1 channels")
+                          .arg(numbers.size()));
+            render();
           });
-  connect(grid->selectionModel(), &QItemSelectionModel::selectionChanged, this,
-          [this] {
-            if (editor->isVisible())
-              render();
-          });
-  connect(value, &QSpinBox::valueChanged, this, [this](int v) {
-    if (!updating)
-      edit(v);
-  });
-  connect(encoder, &LevelControl::valueChanged, value, &QSpinBox::setValue);
-  connect(encoder, &LevelControl::editRequested, this, [this] {
-    value->setFocus();
-    value->selectAll();
-  });
   connect(followInput, &QCheckBox::toggled, this, [this] { render(); });
-  connect(releaseChannel, &QPushButton::clicked, this, [this] {
-    const auto numbers = selectedChannels();
-    release(numbers);
-    log(numbers.size() == 1
-            ? QString("EDIT · Released channel %1").arg(numbers.first())
-            : QString("EDIT · Released %1 channels").arg(numbers.size()));
-    render();
-  });
   connect(copy, &QPushButton::clicked, this, [this] {
     QVector<int> set;
     for (int i = 0; i < 512; ++i)
@@ -726,13 +558,12 @@ void Window::join(int u) {
   if (!monitor.listenTo(u, &error))
     status->setText(error);
 }
-void Window::edit(int v) {
+void Window::applyOutput(const QVector<int> &channels, int level) {
   prepareOutput();
-  for (int number : selectedChannels()) {
+  for (int number : channels) {
     overrides.setBit(number - 1);
-    output[number - 1] = char(v);
+    output[number - 1] = char(level);
   }
-  encoder->setValue(v);
   render();
 }
 void Window::log(const QString &message) {
@@ -792,22 +623,6 @@ void Window::prepareOutput() {
     if (!overrides.testBit(ch))
       output[ch] = base[ch];
 }
-void Window::syncChannelSelection() {
-  const QSignalBlocker blocker(grid->selectionModel());
-  const int position = visibleChannels.indexOf(channel->value() - 1);
-  if (position < 0) {
-    grid->clearSelection();
-    grid->setCurrentIndex(QModelIndex());
-  } else {
-    const QModelIndex index =
-        grid->model()->index(position / columns, position % columns);
-    if (grid->selectionModel()->isSelected(index)) // inside a selection: keep it
-      grid->selectionModel()->setCurrentIndex(index,
-                                              QItemSelectionModel::NoUpdate);
-    else
-      grid->setCurrentIndex(index);
-  }
-}
 // Back to the network: each channel follows the other devices again, or goes
 // to zero when there is nothing received to follow
 void Window::release(const QVector<int> &numbers) {
@@ -821,107 +636,6 @@ void Window::release(const QVector<int> &numbers) {
   if (!baseline)
     for (int number : numbers)
       output[number - 1] = 0;
-}
-QVector<int> Window::selectedChannels() const {
-  QVector<int> numbers;
-  for (const auto &index : grid->selectionModel()->selectedIndexes())
-    if (index.data(Qt::UserRole).isValid())
-      numbers << index.data(Qt::UserRole).toInt();
-  std::sort(numbers.begin(), numbers.end());
-  if (numbers.isEmpty())
-    numbers << channel->value();
-  return numbers;
-}
-bool Window::eventFilter(QObject *watched, QEvent *event) {
-  if (watched == grid->viewport() && !grid->isHidden()) {
-    auto *mouse = dynamic_cast<QMouseEvent *>(event);
-    if (mouse && mouse->button() == Qt::LeftButton) {
-      if (event->type() == QEvent::MouseButtonPress) {
-        // Clicking the only channel already being edited will close its editor
-        const QModelIndex under = grid->indexAt(mouse->position().toPoint());
-        const auto numbers = selectedChannels();
-        pressedOnlyOpen = editor->isVisible() && under.isValid() &&
-                          mouse->modifiers() == Qt::NoModifier &&
-                          numbers.size() == 1 &&
-                          numbers.first() == under.data(Qt::UserRole).toInt();
-      } else if (event->type() == QEvent::MouseButtonRelease) {
-        QTimer::singleShot(0, this, [this] {
-          const auto numbers = selectedChannels();
-          if (pressedOnlyOpen && numbers.size() == 1)
-            closeEditor();
-          else if (grid->selectionModel()->hasSelection())
-            openEditor(channel->value());
-          pressedOnlyOpen = false;
-        });
-      }
-    }
-  }
-  return QMainWindow::eventFilter(watched, event);
-}
-void Window::openEditor(int channelNumber) {
-  editorChannel = channelNumber;
-  editor->show();
-  editor->raise();
-  placeEditor();
-  encoder->setFocus();
-  render();
-}
-void Window::closeEditor() {
-  editorChannel = 0;
-  editor->hide();
-  grid->setFocus();
-}
-void Window::placeEditor() {
-  if (!editor->isVisible())
-    return;
-  const int position = visibleChannels.indexOf(channel->value() - 1);
-  if (position < 0) { // filtered out of the view: nothing to stand beside
-    closeEditor();
-    return;
-  }
-  const QRect cell = grid->visualRect(
-      grid->model()->index(position / columns, position % columns));
-  const QPoint corner = grid->viewport()->mapTo(canvas, cell.topLeft());
-  editor->adjustSize();
-  const int gap = 8;
-  int x = corner.x() + cell.width() + gap;
-  if (x + editor->width() > canvas->width())
-    x = corner.x() - editor->width() - gap;
-  int y = corner.y() + cell.height() / 2 - editor->height() / 2;
-  x = qBound(0, x, qMax(0, canvas->width() - editor->width()));
-  y = qBound(0, y, qMax(0, canvas->height() - editor->height()));
-  editor->move(x, y);
-}
-void Window::refreshEditor(const QByteArray &received, bool hasInput) {
-  if (!editor->isVisible())
-    return;
-  const auto numbers = selectedChannels();
-  const bool several = numbers.size() > 1;
-  channel->setVisible(!several);
-  editorTitle->setText(several ? QString("%1 channels").arg(numbers.size())
-                               : QString("Channel"));
-  // The network's level: the same on every selected channel, or none to show
-  int net = hasInput ? quint8(received[numbers.first() - 1]) : -1;
-  const QByteArray others = merged(true);
-  int external = others.size() == 512 ? quint8(others[numbers.first() - 1]) : -1;
-  bool anyOverride = false, allOverride = true;
-  for (int number : numbers) {
-    if (hasInput && quint8(received[number - 1]) != net)
-      net = -1;
-    if (others.size() == 512 && quint8(others[number - 1]) != external)
-      external = -1;
-    const bool set = overrides.testBit(number - 1);
-    anyOverride |= set;
-    allOverride &= set;
-  }
-  encoder->setNetwork(net, external);
-  editorState->setText(several && net < 0 && hasInput ? "Levels differ"
-                       : allOverride                  ? "● Set here"
-                       : anyOverride                  ? "● Partly set"
-                       : followInput->isChecked()     ? "Follows network"
-                                                      : "Not following");
-  releaseChannel->setEnabled(anyOverride);
-  placeEditor();
 }
 void Window::render() {
   monitor.prune();
@@ -1013,82 +727,15 @@ void Window::render() {
     rx = heldInput.value(current);
   live = live && listen->isChecked();
   const bool hasInput = rx.size() == 512;
-  const bool activeOnly = activeChannelsOnly->isChecked();
-  const int displayColumns = activeOnly ? 16 : 32;
-  int active = 0;
-  QVector<int> shown;
-  shown.reserve(512);
-  for (int i = 0; i < 512; ++i) {
-    const bool aboveZero = hasInput && quint8(rx[i]) > 0;
-    if (aboveZero)
-      ++active;
-    if (!activeOnly || aboveZero)
-      shown.append(i);
-  }
-  if (shown != visibleChannels || columns != displayColumns) {
-    // Repack only when channel membership changes, preserving the inspector's
-    // real DMX address even when that channel disappears from the filtered view.
-    const QSignalBlocker blocker(grid->selectionModel());
-    grid->setUpdatesEnabled(false);
-    visibleChannels = shown;
-    columns = displayColumns;
-    grid->setColumnCount(columns);
-    grid->setRowCount((shown.size() + columns - 1) / columns);
-    for (int position = 0; position < grid->rowCount() * columns; ++position) {
-      auto item = grid->item(position / columns, position % columns);
-      if (!item) {
-        item = new QTableWidgetItem;
-        item->setTextAlignment(Qt::AlignCenter);
-        grid->setItem(position / columns, position % columns, item);
-      }
-      if (position < shown.size()) {
-        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        item->setData(Qt::UserRole, shown[position] + 1);
-      } else {
-        item->setFlags(Qt::NoItemFlags);
-        item->setData(Qt::UserRole, QVariant());
-        item->setText({});
-        item->setToolTip({});
-        item->setBackground(Qt::black);
-      }
-    }
-    paintedInput.fill(-2);
-    paintedOutput.fill(-2);
-    syncChannelSelection();
-    grid->setUpdatesEnabled(true);
-  }
-  emptyGrid->setText(hasInput ? "No channels above zero in this universe."
-                              : "Waiting for received DMX data.");
-  gridStack->setCurrentWidget(shown.isEmpty() ? static_cast<QWidget *>(emptyGrid)
-                                             : static_cast<QWidget *>(grid));
-  for (int position = 0; position < shown.size(); ++position) {
-    const int i = shown[position];
-    const int receivedValue = hasInput ? quint8(rx[i]) : -1;
-    const int out = quint8(output[i]);
-    const bool overridden = overrides.testBit(i);
-    const int outState = out | (overridden ? 256 : 0);
-    auto item = grid->item(position / columns, position % columns);
-    if (paintedOutput[i] != outState) {
-      item->setData(Qt::UserRole + 1, out);
-      item->setData(Qt::UserRole + 2, overridden);
-    }
-    if (paintedInput[i] != receivedValue) {
-      item->setText(QString("%1\n%2").arg(i + 1).arg(
-          receivedValue < 0 ? QString("—") : QString::number(receivedValue)));
-      int gray = qMax(0, receivedValue);
-      item->setBackground(QColor(gray, gray, gray));
-      item->setForeground(gray < 128 ? QColor(Qt::white) : QColor(Qt::black));
-    }
-    if (paintedInput[i] != receivedValue || paintedOutput[i] != outState)
-      item->setToolTip(QString("Channel %1\nReceived: %2\nOutput: %3")
-                           .arg(i + 1)
-                           .arg(receivedValue < 0
-                                    ? QString("No data")
-                                    : QString::number(receivedValue))
-                           .arg(out));
-    paintedInput[i] = receivedValue;
-    paintedOutput[i] = outState;
-  }
+  pxs::dmx::ChannelGrid::State state;
+  state.received = hasInput ? rx : QByteArray();
+  const QByteArray others = merged(true);
+  state.others = others.size() == 512 ? others : QByteArray();
+  state.output = output;
+  state.overridden = overrides;
+  state.following = followInput->isChecked();
+  grid->setState(state);
+  const int active = grid->activeCount();
   QString hint;
   if (listen->isChecked()) {
     if (!stats.datagrams)
@@ -1124,11 +771,6 @@ void Window::render() {
   universeTitle->setText(QString("Universe %1 · %2 received")
                              .arg(universe->value())
                              .arg(mergeMode->currentText()));
-  updating = true;
-  value->setValue(quint8(output[channel->value() - 1]));
-  encoder->setValue(value->value());
-  updating = false;
-  refreshEditor(rx, hasInput);
   if (!pendingLog.isEmpty()) {
     bool atEnd = eventLog->verticalScrollBar()->value() >=
                  eventLog->verticalScrollBar()->maximum() - 2;
@@ -1210,8 +852,7 @@ void Window::restoreSettings() {
   auto savedOutput = s.value("output/values").toByteArray();
   if (savedOutput.size() == 512)
     output = savedOutput;
-  channel->setValue(s.value("view/channel", 1).toInt());
-  syncChannelSelection();
+  grid->setCurrentChannel(s.value("view/channel", 1).toInt());
   activeChannelsOnly->setChecked(
       s.value("view/activeChannelsOnly", false).toBool());
   showDiagnostics->setChecked(s.value("view/diagnostics", false).toBool());
@@ -1280,7 +921,7 @@ void Window::saveSettings() {
   for (int i = 0; i < 512; ++i)
     mask[i] = overrides.testBit(i) ? 1 : 0;
   s.setValue("output/overrides", mask);
-  s.setValue("view/channel", channel->value());
+  s.setValue("view/channel", grid->currentChannel());
   s.setValue("view/activeChannelsOnly", activeChannelsOnly->isChecked());
   s.setValue("view/diagnostics", showDiagnostics->isChecked());
   s.setValue("view/sources", showSources->isChecked());
