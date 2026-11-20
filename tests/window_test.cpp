@@ -1,4 +1,5 @@
 #include "window.h"
+#include <pxs/LevelControl.h>
 #include <QtTest>
 class WindowTest : public QObject {
   Q_OBJECT
@@ -115,7 +116,7 @@ private slots:
     w.show();
     auto grid = w.findChild<QTableWidget *>("channelGrid");
     auto editor = w.findChild<QFrame *>("channelEditor");
-    auto encoder = w.findChild<LevelControl *>("outputEncoder");
+    auto encoder = w.findChild<pxs::dmx::LevelControl *>("outputEncoder");
     QVERIFY(editor && encoder);
     QVERIFY(!w.findChild<QWidget *>("outputPanel")); // no side panel any more
     QTRY_VERIFY(!editor->isVisible());
@@ -244,7 +245,7 @@ private slots:
       if (b->maximum() == 255)
         value = b;
     QVERIFY(value);
-    w.findChild<LevelControl *>("outputEncoder")->setValue(127);
+    w.findChild<pxs::dmx::LevelControl *>("outputEncoder")->setValue(127);
     QCOMPARE(value->value(), 127);
     // Editing alone must never impersonate a received DMX packet.
     QTest::qWait(150);
@@ -262,7 +263,7 @@ private slots:
       w.grab().save(qEnvironmentVariable("DMXSCOPE_SCREENSHOT"));
     send->click();
     QVERIFY(!send->isChecked());
-    w.findChild<LevelControl *>("outputEncoder")->setValue(64);
+    w.findChild<pxs::dmx::LevelControl *>("outputEncoder")->setValue(64);
     QTest::qWait(150);
     QCOMPARE(value->value(), 64);
     QCOMPARE(grid->item(0, 0)->text(), QString("1\n127"));
@@ -478,7 +479,7 @@ private slots:
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QSpinBox *>("channel")->setValue(268);
-    w.findChild<LevelControl *>("outputEncoder")->setValue(76);
+    w.findChild<pxs::dmx::LevelControl *>("outputEncoder")->setValue(76);
     QTest::qWait(100);
     QCOMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QLineEdit *>("destination")->setText(address.toString());
@@ -786,7 +787,7 @@ private slots:
     auto grid = w.findChild<QTableWidget *>();
     QTRY_COMPARE(grid->item(0, 4)->text(), QString("5\n96"));
     w.findChild<QSpinBox *>("channel")->setValue(268);
-    w.findChild<LevelControl *>("outputEncoder")->setValue(76);
+    w.findChild<pxs::dmx::LevelControl *>("outputEncoder")->setValue(76);
     QCOMPARE(grid->item(8, 11)->text(), QString("268\n0"));
     w.findChild<QLineEdit *>("destination")->setText("127.0.0.1");
     w.findChild<QPushButton *>("transmit")->setChecked(true);
