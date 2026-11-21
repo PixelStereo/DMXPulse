@@ -10,7 +10,7 @@ import stat
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "third_party/pxs/scripts"))
+sys.path.insert(0, str(ROOT / "third_party/pxs-qt/scripts"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import names  # noqa: E402  release file names, the same rule in every application
 from build_id import display_version  # noqa: E402  the version the application carries in its name
@@ -110,7 +110,7 @@ def windows(build, output):
     installer = output / names.name("windows", "x64", "-Setup.exe")
     makensis = shutil.which("makensis") or str(Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "NSIS/makensis.exe")
     run(makensis, "/DPRODUCT=DMXPulse", f"/DAPP_VERSION={name.removeprefix('DMXPulse ')}", f"/DAPP_EXE={name}.exe",
-        f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "third_party/pxs/packaging/windows.nsi")
+        f"/DPAYLOAD={stage}", f"/DOUTPUT={installer}", ROOT / "third_party/pxs-qt/packaging/windows.nsi")
     # What users get is the installer: install it silently somewhere clean and start what it installed
     with tempfile.TemporaryDirectory() as clean:
         run(installer, "/S", "/CurrentUser", f"/D={clean}")
