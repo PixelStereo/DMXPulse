@@ -10,7 +10,7 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
 # Shared Pixel Stereo code (the look), pinned as a submodule
 set(PXS_BUILD_TESTS OFF)
-add_subdirectory(third_party/pxs EXCLUDE_FROM_ALL)
+add_subdirectory(third_party/pxs-qt EXCLUDE_FROM_ALL)
 include(CTest)
 function(dmx_warnings target)
   if(MSVC)
