@@ -18,7 +18,7 @@
   <img alt="Protocols Art-Net and sACN" src="https://img.shields.io/badge/Art--Net%20%C2%B7%20sACN-network%20DMX-333a37">
 </p>
 
-![DMXPulse — live universe, grayscale channel levels and independent output controls](docs/workspace.png)
+![DMXPulse — live universe, grayscale levels, and the channel editor comparing network and output](docs/workspace.png)
 
 ## The whole universe, at a glance
 
@@ -28,7 +28,7 @@ Switch on **Active channels only** to focus on received levels above zero. The v
 
 | Monitor | Inspect | Send |
 |:---|:---|:---|
-| See all 512 channels in one grayscale view. | Select a channel to compare received and prepared values. | Shape levels with a rotary encoder, fine steps or an exact value. |
+| See all 512 channels in one grayscale view. | Click a channel to compare what arrives with what you send. | Shift-click to edit a whole range at once: dial, fine steps or an exact value. |
 | Choose an interface, protocol and universe. | Merge received sources with HTP or LTP. | Follow input and override individual channels. |
 | Spot live, stale and missing input immediately. | Open network diagnostics when you need more detail. | Enable transmission explicitly, at approximately 30 Hz. |
 
