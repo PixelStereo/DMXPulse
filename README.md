@@ -3,7 +3,6 @@
 <p align="center"><strong>See the signal. Find the problem. Take control.</strong></p>
 <p align="center">A clear view of your Art-Net and sACN lighting network.<br>512 channels. Live values. No guesswork.</p>
 <p align="center">
-  <a href="https://github.com/PixelStereo/DMXPulse/releases">Download</a> ·
   <a href="#your-first-signal">Quick start</a> ·
   <a href="docs/guide.md">User guide</a> ·
   <a href="docs/build.md">Build from source</a>
