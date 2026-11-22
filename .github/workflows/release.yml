@@ -51,7 +51,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates git build-essential cmake ninja-build qt6-base-dev libqt6opengl6-dev libgl1-mesa-dev dpkg-dev file python3
       - uses: actions/checkout@v4
         with:
-          submodules: true # third_party/pxs (the look)
+          submodules: recursive # third_party/pxs-qt (the look)
       - name: Build and test natively
         env:
           APP_VERSION: ${{ needs.metadata.outputs.version }}
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the tags: the version in the application's name counts commits since the last release
-          submodules: true # third_party/pxs
+          submodules: recursive # third_party/pxs-qt
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -142,7 +142,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the tags: the version in the application's name counts commits since the last release
-          submodules: true # third_party/pxs
+          submodules: recursive # third_party/pxs-qt
       - uses: ilammy/msvc-dev-cmd@v1
       - uses: jurplel/install-qt-action@v4
         with:
@@ -188,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true # third_party/pxs (the look)
+          submodules: recursive # third_party/pxs-qt (the look)
       - name: Dependencies
         run: sudo apt-get update && sudo apt-get install -y qt6-base-dev libqt6opengl6-dev ninja-build
       - name: Address and undefined-behavior checks
@@ -241,5 +241,5 @@ jobs:
     needs: release
     permissions:
       contents: write
-    uses: PixelStereo/pxs/.github/workflows/release-downloads.yml@v0.37.1
+    uses: PixelStereo/pxs-qt/.github/workflows/release-downloads.yml@v0.37.1
     with: { app: DMXPulse, platforms: "mac,win,linux,rpi", pxs-ref: v0.37.1 }
